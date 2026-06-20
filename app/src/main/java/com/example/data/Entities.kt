@@ -43,3 +43,14 @@ data class OrderItemEntity(
     val quantity: Int,
     val category: String
 )
+
+@Entity(tableName = "chat_messages")
+data class ChatMessageEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0L,
+    val userId: String,
+    val sender: String, // "user" or "admin"
+    val senderName: String,
+    val messageText: String,
+    val timestamp: Long
+)
+

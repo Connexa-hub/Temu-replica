@@ -53,3 +53,19 @@ interface OrderDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrderItems(orderItems: List<OrderItemEntity>)
 }
+
+@Dao
+interface ChatDao {
+    @Query("SELECT * FROM chat_messages WHERE userId = :userId ORDER BY timestamp ASC")
+    fun getChatHistory(userId: String): Flow<List<ChatMessageEntity>>
+
+    @Query("SELECT DISTINCT userId FROM chat_messages")
+    fun getDistinctChatUsers(): Flow<List<String>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMessage(message: ChatMessageEntity)
+
+    @Query("DELETE FROM chat_messages")
+    suspend fun clearAllMessages()
+}
+

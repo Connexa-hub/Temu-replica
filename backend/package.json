@@ -1,0 +1,15 @@
+{
+  "name": "temu-shop-backend",
+  "version": "1.0.0",
+  "description": "Temu style lightweight e-commerce storefront backend with real-time operations, admin inventory controller, and live customer chat support integration.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "cors": "^2.8.5"
+  },
+  "author": "Google AI Studio Agent",
+  "license": "MIT"
+}

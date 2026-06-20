@@ -11,7 +11,14 @@ class ShopRepository(private val db: AppDatabase) {
     private val productDao = db.productDao()
     private val cartDao = db.cartDao()
     private val orderDao = db.orderDao()
+    private val chatDao = db.chatDao()
     private val seedMutex = Mutex()
+
+    fun getChatHistory(userId: String): Flow<List<ChatMessageEntity>> = chatDao.getChatHistory(userId)
+    val distinctChatUsers: Flow<List<String>> = chatDao.getDistinctChatUsers()
+
+    suspend fun insertChatMessage(message: ChatMessageEntity) = chatDao.insertMessage(message)
+    suspend fun clearAllChatMessages() = chatDao.clearAllMessages()
 
     val allProducts: Flow<List<ProductEntity>> = productDao.getAllProducts()
     val cartItems: Flow<List<CartItemEntity>> = cartDao.getCartItems()

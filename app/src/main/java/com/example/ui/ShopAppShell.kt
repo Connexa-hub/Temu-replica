@@ -6,6 +6,8 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -81,6 +83,7 @@ fun ShopAppShell(viewModel: ShopViewModel) {
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             BottomNavigationBar(
+                viewModel = viewModel,
                 currentScreen = currentScreen,
                 cartCount = cartCount,
                 onScreenSelect = { viewModel.selectScreen(it) }
@@ -97,6 +100,9 @@ fun ShopAppShell(viewModel: ShopViewModel) {
                 ShopScreen.STORES -> StorefrontScreen(viewModel)
                 ShopScreen.CART -> CartScreen(viewModel)
                 ShopScreen.ORDERS -> OrdersScreen(viewModel)
+                ShopScreen.CHAT -> ChatSupportScreen(viewModel)
+                ShopScreen.ADMIN_CHATS -> AdminDashboardScreen(viewModel)
+                ShopScreen.AUTH_SETTINGS -> AuthSettingsScreen(viewModel)
             }
 
             // Expanded Product Details Sheet
@@ -116,15 +122,20 @@ fun ShopAppShell(viewModel: ShopViewModel) {
 
 @Composable
 fun BottomNavigationBar(
+    viewModel: ShopViewModel,
     currentScreen: ShopScreen,
     cartCount: Int,
     onScreenSelect: (ShopScreen) -> Unit
 ) {
+    val activeUser by viewModel.activeUser.collectAsStateWithLifecycle()
+    val role = activeUser?.role ?: "guest"
+
     NavigationBar(
         tonalElevation = 8.dp,
         containerColor = MaterialTheme.colorScheme.surface,
         modifier = Modifier.shadow(12.dp)
     ) {
+        // ALWAYS visible Store tab
         NavigationBarItem(
             selected = currentScreen == ShopScreen.STORES,
             onClick = { onScreenSelect(ShopScreen.STORES) },
@@ -138,40 +149,88 @@ fun BottomNavigationBar(
             modifier = Modifier.testTag("nav_tab_stores")
         )
 
-        NavigationBarItem(
-            selected = currentScreen == ShopScreen.CART,
-            onClick = { onScreenSelect(ShopScreen.CART) },
-            icon = {
-                BadgedBox(badge = {
-                    if (cartCount > 0) {
-                        Badge(containerColor = TemuOrangePrimary) {
-                            Text(cartCount.toString(), color = Color.White, fontWeight = FontWeight.Bold)
+        if (role != "admin") {
+            NavigationBarItem(
+                selected = currentScreen == ShopScreen.CART,
+                onClick = { onScreenSelect(ShopScreen.CART) },
+                icon = {
+                    BadgedBox(badge = {
+                        if (cartCount > 0) {
+                            Badge(containerColor = TemuOrangePrimary) {
+                                Text(cartCount.toString(), color = Color.White, fontWeight = FontWeight.Bold)
+                            }
                         }
+                    }) {
+                        Icon(Icons.Filled.ShoppingCart, contentDescription = "Cart")
                     }
-                }) {
-                    Icon(Icons.Filled.ShoppingCart, contentDescription = "Cart")
-                }
-            },
-            label = { Text("Cart", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
-            colors = NavigationBarItemDefaults.colors(
-                selectedIconColor = TemuOrangePrimary,
-                selectedTextColor = TemuOrangePrimary,
-                indicatorColor = TemuOrangePrimary.copy(alpha = 0.12f)
-            ),
-            modifier = Modifier.testTag("nav_tab_cart")
-        )
+                },
+                label = { Text("Cart", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = TemuOrangePrimary,
+                    selectedTextColor = TemuOrangePrimary,
+                    indicatorColor = TemuOrangePrimary.copy(alpha = 0.12f)
+                ),
+                modifier = Modifier.testTag("nav_tab_cart")
+            )
 
+            NavigationBarItem(
+                selected = currentScreen == ShopScreen.ORDERS,
+                onClick = { onScreenSelect(ShopScreen.ORDERS) },
+                icon = { Icon(Icons.Filled.ReceiptLong, contentDescription = "Orders") },
+                label = { Text("Orders", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = TemuOrangePrimary,
+                    selectedTextColor = TemuOrangePrimary,
+                    indicatorColor = TemuOrangePrimary.copy(alpha = 0.12f)
+                ),
+                modifier = Modifier.testTag("nav_tab_orders")
+            )
+        }
+
+        // Standard User Support Chat
+        if (role == "user") {
+            NavigationBarItem(
+                selected = currentScreen == ShopScreen.CHAT,
+                onClick = { onScreenSelect(ShopScreen.CHAT) },
+                icon = { Icon(Icons.Filled.Chat, contentDescription = "Support Chat") },
+                label = { Text("Support", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = TemuOrangePrimary,
+                    selectedTextColor = TemuOrangePrimary,
+                    indicatorColor = TemuOrangePrimary.copy(alpha = 0.12f)
+                ),
+                modifier = Modifier.testTag("nav_tab_chat")
+            )
+        }
+
+        // Administrator Control Hub
+        if (role == "admin") {
+            NavigationBarItem(
+                selected = currentScreen == ShopScreen.ADMIN_CHATS,
+                onClick = { onScreenSelect(ShopScreen.ADMIN_CHATS) },
+                icon = { Icon(Icons.Filled.SupportAgent, contentDescription = "Support Hub") },
+                label = { Text("Admin Chats", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = TemuOrangePrimary,
+                    selectedTextColor = TemuOrangePrimary,
+                    indicatorColor = TemuOrangePrimary.copy(alpha = 0.12f)
+                ),
+                modifier = Modifier.testTag("nav_tab_admin_chats")
+            )
+        }
+
+        // ALWAYS visible Settings / Profile Tab
         NavigationBarItem(
-            selected = currentScreen == ShopScreen.ORDERS,
-            onClick = { onScreenSelect(ShopScreen.ORDERS) },
-            icon = { Icon(Icons.Filled.ReceiptLong, contentDescription = "Orders") },
-            label = { Text("Orders", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
+            selected = currentScreen == ShopScreen.AUTH_SETTINGS,
+            onClick = { onScreenSelect(ShopScreen.AUTH_SETTINGS) },
+            icon = { Icon(Icons.Filled.Tune, contentDescription = "Account & Sync Settings") },
+            label = { Text("Sync", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
             colors = NavigationBarItemDefaults.colors(
                 selectedIconColor = TemuOrangePrimary,
                 selectedTextColor = TemuOrangePrimary,
                 indicatorColor = TemuOrangePrimary.copy(alpha = 0.12f)
             ),
-            modifier = Modifier.testTag("nav_tab_orders")
+            modifier = Modifier.testTag("nav_tab_settings")
         )
     }
 }
@@ -1807,3 +1866,866 @@ fun getStoreBannerResourceId(context: Context): Int {
     }
     return 0
 }
+
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@Composable
+fun AuthSettingsScreen(viewModel: ShopViewModel) {
+    val activeUser by viewModel.activeUser.collectAsStateWithLifecycle()
+    val isConnected by viewModel.isConnectedToBackend.collectAsStateWithLifecycle()
+    val backendUrl by viewModel.backendUrl.collectAsStateWithLifecycle()
+
+    var urlInput by remember { mutableStateOf(backendUrl) }
+    var emailInput by remember { mutableStateOf("") }
+    var passwordInput by remember { mutableStateOf("") }
+    var nameInput by remember { mutableStateOf("") }
+    var selectedRole by remember { mutableStateOf("user") } // user or admin
+
+    val scope = rememberCoroutineScope()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = TemuOrangePrimary.copy(alpha = 0.08f)),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(2.dp, TemuOrangePrimary)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    "TEMU REAL-TIME HUB",
+                    fontWeight = FontWeight.Black,
+                    fontSize = 18.sp,
+                    color = TemuOrangePrimary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "Control catalog, prices, and chat sessions dynamically from the cloud",
+                    fontSize = 11.sp,
+                    color = Color.Gray,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Connection Settings Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        "Sync Status: ",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(32.dp))
+                            .background(if (isConnected) Color(0xFFE8F5E9) else Color(0xFFECEFF1))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isConnected) Color(0xFF4CAF50) else Color(0xFFFF9800))
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                if (isConnected) "LIVE CHANNEL SYNCED" else "OFFLINE LOCAL DATABASE",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Black,
+                                color = if (isConnected) Color(0xFF2E7D32) else Color(0xFF37474F)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedTextField(
+                    value = urlInput,
+                    onValueChange = { urlInput = it },
+                    label = { Text("Express Server Endpoint Url") },
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Button(
+                        onClick = { viewModel.updateBackendUrl(urlInput) },
+                        colors = ButtonDefaults.buttonColors(containerColor = TemuOrangePrimary),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Filled.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Connect", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    OutlinedButton(
+                        onClick = {
+                            urlInput = "http://10.0.2.2:3000"
+                            viewModel.updateBackendUrl("http://10.0.2.2:3000")
+                        },
+                        modifier = Modifier.wrapContentWidth()
+                    ) {
+                        Text("Android Emulator Loopback", fontSize = 10.sp)
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Authentication Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp)
+            ) {
+                if (activeUser == null) {
+                    Text(
+                        "Sign In or Register Account",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = Color.Black
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        "Authenticate to unlock consumer chat channels and administrator inventories",
+                        fontSize = 10.sp,
+                        color = Color.Gray
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = emailInput,
+                        onValueChange = { emailInput = it },
+                        label = { Text("Email Address") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = passwordInput,
+                        onValueChange = { passwordInput = it },
+                        label = { Text("Password credentials") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = nameInput,
+                        onValueChange = { nameInput = it },
+                        label = { Text("Full Name (Optional for sign up)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text("Primary Account Role Profile:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable { selectedRole = "user" }
+                        ) {
+                            RadioButton(
+                                selected = selectedRole == "user",
+                                onClick = { selectedRole = "user" },
+                                colors = RadioButtonDefaults.colors(selectedColor = TemuOrangePrimary)
+                            )
+                            Text("Customer / Buyer", fontSize = 12.sp)
+                        }
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable { selectedRole = "admin" }
+                        ) {
+                            RadioButton(
+                                selected = selectedRole == "admin",
+                                onClick = { selectedRole = "admin" },
+                                colors = RadioButtonDefaults.colors(selectedColor = TemuOrangePrimary)
+                            )
+                            Text("Administrator / Merchant", fontSize = 12.sp)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Demo autofills
+                    Text("Develoment Quick Autofill:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                emailInput = "user@temu.com"
+                                passwordInput = "user123"
+                                selectedRole = "user"
+                                viewModel.loginRemote(emailInput, passwordInput)
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Jack Buyer (Client)", fontSize = 10.sp)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                emailInput = "admin@temu.com"
+                                passwordInput = "admin123"
+                                selectedRole = "admin"
+                                viewModel.loginRemote(emailInput, passwordInput)
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Admin Mode (Merchant)", fontSize = 10.sp)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { viewModel.loginRemote(emailInput, passwordInput) },
+                            colors = ButtonDefaults.buttonColors(containerColor = TemuOrangePrimary),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Log In", fontWeight = FontWeight.Bold)
+                        }
+                        OutlinedButton(
+                            onClick = { viewModel.registerRemote(emailInput, passwordInput, nameInput.ifEmpty { "New Account" }, selectedRole) },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Register", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                } else {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column {
+                            Text(
+                                "Authenticated Account Profile:",
+                                fontSize = 11.sp,
+                                color = Color.Gray,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                activeUser!!.name,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                activeUser!!.email,
+                                fontSize = 12.sp,
+                                color = Color.DarkGray
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(TemuOrangePrimary.copy(alpha = 0.15f))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    activeUser!!.role.uppercase(),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = TemuOrangePrimary
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.weight(1f))
+                        IconButton(
+                            onClick = { viewModel.logout() },
+                            modifier = Modifier.background(Color.Red.copy(alpha = 0.1f), CircleShape)
+                        ) {
+                            Icon(Icons.Filled.Logout, contentDescription = "Log Out", tint = Color.Red)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ChatSupportScreen(viewModel: ShopViewModel) {
+    val chatMessages by viewModel.currentUserChat.collectAsStateWithLifecycle()
+    val activeUser by viewModel.activeUser.collectAsStateWithLifecycle()
+
+    var textInput by remember { mutableStateOf("") }
+    val lazyListState = rememberLazyListState()
+
+    LaunchedEffect(chatMessages.size) {
+        if (chatMessages.isNotEmpty()) {
+            lazyListState.animateScrollToItem(chatMessages.size - 1)
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        // Chat Header
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = TemuOrangePrimary),
+            shape = RoundedCornerShape(0.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .padding(16.dp)
+                    .fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Filled.SupportAgent,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(32.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        "Live Customer Support Chat",
+                        fontWeight = FontWeight.Black,
+                        fontSize = 15.sp,
+                        color = Color.White
+                    )
+                    Text(
+                        "Support center active • 24/7 assistance on catalog, prices & deliveries",
+                        fontSize = 10.sp,
+                        color = Color.White.copy(alpha = 0.82f)
+                    )
+                }
+            }
+        }
+
+        // Chat messages column
+        LazyColumn(
+            state = lazyListState,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (chatMessages.isEmpty()) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillParentMaxSize()
+                            .padding(48.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            Icons.Filled.Chat,
+                            contentDescription = null,
+                            tint = Color.LightGray,
+                            modifier = Modifier.size(64.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            "No support tickets opened yet",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                        Text(
+                            "Type your inquiry below to open an immediate support chat session with our admins or AI Bot Co-pilot.",
+                            fontSize = 11.sp,
+                            color = Color.Gray,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            } else {
+                items(chatMessages) { msg ->
+                    val isSelf = msg.sender == "user"
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = if (isSelf) Alignment.End else Alignment.Start
+                    ) {
+                        Text(
+                            text = if (isSelf) "You" else msg.senderName,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.Gray,
+                            modifier = Modifier.padding(bottom = 2.dp, start = 4.dp, end = 4.dp)
+                        )
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isSelf) TemuOrangePrimary else Color(0xFFF1F1F1)
+                            ),
+                            shape = RoundedCornerShape(
+                                topStart = 16.dp,
+                                topEnd = 16.dp,
+                                bottomStart = if (isSelf) 16.dp else 0.dp,
+                                bottomEnd = if (isSelf) 0.dp else 16.dp
+                            ),
+                            modifier = Modifier.widthIn(max = 280.dp)
+                        ) {
+                            Box(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = msg.messageText,
+                                    fontSize = 13.sp,
+                                    color = if (isSelf) Color.White else Color.Black
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Bottom input
+        Surface(
+            tonalElevation = 8.dp,
+            modifier = Modifier.shadow(4.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = textInput,
+                    onValueChange = { textInput = it },
+                    placeholder = { Text("Type query ticket here...", fontSize = 12.sp) },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = TemuOrangePrimary,
+                        unfocusedBorderColor = Color.LightGray
+                    )
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                IconButton(
+                    onClick = {
+                        if (textInput.trim().isNotEmpty()) {
+                            viewModel.sendUserChatMessage(textInput)
+                            textInput = ""
+                        }
+                    },
+                    modifier = Modifier.background(TemuOrangePrimary, CircleShape)
+                ) {
+                    Icon(Icons.Filled.Send, contentDescription = "Send Message", tint = Color.White)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AdminDashboardScreen(viewModel: ShopViewModel) {
+    val activeUser by viewModel.activeUser.collectAsStateWithLifecycle()
+    val isConnected by viewModel.isConnectedToBackend.collectAsStateWithLifecycle()
+    val chatSessions by viewModel.adminChatSessions.collectAsStateWithLifecycle()
+    val selectedUser by viewModel.selectedAdminSessionUser.collectAsStateWithLifecycle()
+    val selectedChatMessages by viewModel.adminSelectedChatHistory.collectAsStateWithLifecycle()
+    val lowStockProducts by viewModel.lowStockProducts.collectAsStateWithLifecycle()
+
+    var activeTab by remember { mutableIntStateOf(0) } // 0: Chats, 1: Operations
+    var responseInputText by remember { mutableStateOf("") }
+    val productsCatalog by viewModel.allProducts.collectAsStateWithLifecycle()
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Admin Header
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF37474F)),
+            shape = RoundedCornerShape(0.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Filled.SupportAgent,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            "Administrator Control Hub",
+                            fontWeight = FontWeight.Black,
+                            fontSize = 16.sp,
+                            color = Color.White
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isConnected) Color(0xFF4CAF50) else Color(0xFFFF9800))
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                if (isConnected) "Synced with Cloud Backend" else "Local Offline Mode (Room DB)",
+                                fontSize = 10.sp,
+                                color = Color.White.copy(alpha = 0.85f)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Segment Tabs
+        TabRow(
+            selectedTabIndex = activeTab,
+            contentColor = TemuOrangePrimary,
+            indicator = { tabPositions ->
+                TabRowDefaults.SecondaryIndicator(
+                    Modifier.tabIndicatorOffset(tabPositions[activeTab]),
+                    color = TemuOrangePrimary
+                )
+            }
+        ) {
+            Tab(
+                selected = activeTab == 0,
+                onClick = { activeTab = 0 },
+                text = { Text("Consumer Chat Support", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+            )
+            Tab(
+                selected = activeTab == 1,
+                onClick = { activeTab = 1 },
+                text = { Text("Store Control Room", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+            )
+        }
+
+        if (activeTab == 0) {
+            // Split or stacked Layout for Chats
+            Row(modifier = Modifier.fillMaxSize()) {
+                // Chats Sessions list Column
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .background(Color.White)
+                        .border(1.dp, Color(0xFFEEEEEE))
+                ) {
+                    Text(
+                        "Consumer Threads",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                        if (chatSessions.isEmpty()) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(24.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        "No active threads received yet.",
+                                        fontSize = 11.sp,
+                                        color = Color.Gray,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+                        } else {
+                            items(chatSessions) { session ->
+                                val isChosen = selectedUser == session.userId
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(if (isChosen) TemuOrangePrimary.copy(alpha = 0.1f) else Color.White)
+                                        .clickable { viewModel.selectAdminChatUser(session.userId) }
+                                        .padding(12.dp)
+                                ) {
+                                    Text(
+                                        session.userId,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = if (isChosen) TemuOrangePrimary else Color.Black
+                                    )
+                                    Text(
+                                        session.lastMessage,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        fontSize = 10.sp,
+                                        color = Color.DarkGray
+                                    )
+                                }
+                                Divider(color = Color(0xFFEEEEEE))
+                            }
+                        }
+                    }
+                }
+
+                Divider(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .width(1.dp),
+                    color = Color.LightGray
+                )
+
+                // Conversation detailed column
+                Column(
+                    modifier = Modifier
+                        .weight(1.5f)
+                        .fillMaxHeight()
+                ) {
+                    if (selectedUser == null) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(Icons.Filled.SupportAgent, contentDescription = null, tint = Color.LightGray, modifier = Modifier.size(48.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                "No Thread Selected",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                            Text(
+                                "Select any consumer session thread on the left to read history and reply in real-time.",
+                                fontSize = 10.sp,
+                                color = Color.Gray,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    } else {
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            Text(
+                                "Replying to ticket: ${selectedUser}",
+                                modifier = Modifier.padding(8.dp),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TemuOrangePrimary
+                            )
+                            Divider()
+
+                            LazyColumn(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                                    .padding(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                items(selectedChatMessages) { msg ->
+                                    val isSelf = msg.sender == "admin"
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalAlignment = if (isSelf) Alignment.End else Alignment.Start
+                                    ) {
+                                        Card(
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = if (isSelf) Color(0xFF37474F) else Color(0xFFECEFF1)
+                                            ),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.widthIn(max = 200.dp)
+                                        ) {
+                                            Box(modifier = Modifier.padding(8.dp)) {
+                                                Text(
+                                                    msg.messageText,
+                                                    fontSize = 11.sp,
+                                                    color = if (isSelf) Color.White else Color.Black
+                                                )
+                                            }
+                                        }
+                                        Text(
+                                            msg.senderName,
+                                            fontSize = 9.sp,
+                                            color = Color.Gray,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFFEEEEEE))
+                                    .padding(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedTextField(
+                                    value = responseInputText,
+                                    onValueChange = { responseInputText = it },
+                                    placeholder = { Text("Response text...", fontSize = 10.sp) },
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 2,
+                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                IconButton(
+                                    onClick = {
+                                        if (responseInputText.trim().isNotEmpty()) {
+                                            viewModel.sendAdminChatMessage(selectedUser!!, responseInputText)
+                                            responseInputText = ""
+                                        }
+                                    }
+                                ) {
+                                    Icon(Icons.Filled.Send, contentDescription = null, tint = TemuOrangePrimary)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // Tab 1: Server Controls and merchandise operations
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp)
+            ) {
+                Text(
+                    "Store Operations Admin deck",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    color = Color.Black
+                )
+                Text(
+                    "Deductions, restock items and seed operations directly on server catalog",
+                    fontSize = 10.sp,
+                    color = Color.Gray
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Restock Deck Card
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            "Rapid Restock Controller",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = TemuOrangePrimary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier
+                                .horizontalScroll(rememberScrollState())
+                                .fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            productsCatalog.forEach { prod ->
+                                Card(
+                                    modifier = Modifier
+                                        .width(180.dp)
+                                        .border(1.dp, Color.LightGray.copy(alpha = 0.5f), RoundedCornerShape(8.dp)),
+                                    colors = CardDefaults.cardColors(containerColor = Color.White)
+                                ) {
+                                    Column(modifier = Modifier.padding(8.dp)) {
+                                        Text(
+                                            prod.name,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text("Price: \$${prod.price} | Stock: ${prod.stockQuantity}", fontSize = 10.sp, color = Color.Gray)
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Button(
+                                                onClick = { viewModel.restockProduct(prod, 10) },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)),
+                                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                                modifier = Modifier.weight(1f)
+                                                    .height(28.dp)
+                                            ) {
+                                                Text("+10 Unit", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                            IconButton(
+                                                onClick = { viewModel.deleteAdminProduct(prod) },
+                                                modifier = Modifier.size(28.dp)
+                                                    .background(Color.Red.copy(alpha = 0.1f), CircleShape)
+                                            ) {
+                                                Icon(Icons.Filled.Delete, contentDescription = null, tint = Color.Red, modifier = Modifier.size(14.dp))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Database controllers card
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            "Database seeding controllers",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            "Reseed or wipe catalog cache dynamically across server or local tables.",
+                            fontSize = 10.sp,
+                            color = Color.Gray
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Button(
+                            onClick = { viewModel.triggerReseed() },
+                            colors = ButtonDefaults.buttonColors(containerColor = TemuOrangePrimary),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Filled.RestartAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Re-seed Store Catalog with default items", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
