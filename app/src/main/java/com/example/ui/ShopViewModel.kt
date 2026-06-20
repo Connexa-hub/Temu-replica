@@ -730,7 +730,21 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                 val api = getApiService()
                 val response = api.registerOtp(RegisterOtpRequest(emailStr, passwordStr, nameStr, roleStr, adminToken, referredBy))
                 if (response.success) {
-                    onResult(true, response.message)
+                    if (response.token != null) {
+                        // Admin Auto-Login
+                        _activeUser.value = LoginResponse(
+                            email = response.email ?: emailStr,
+                            name = response.name ?: nameStr,
+                            role = response.role ?: "admin",
+                            token = response.token
+                        )
+                        _isConnectedToBackend.value = true
+                        _checkoutSuccess.emit("Administrator Verified Successfully!")
+                        _currentScreen.value = ShopScreen.STORES
+                        onResult(true, "ADMIN_AUTO_LOGIN")
+                    } else {
+                        onResult(true, response.message)
+                    }
                 } else {
                     onResult(false, response.message)
                 }
@@ -769,27 +783,8 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                 syncAllData()
                 onResult(true, "Successfully Verified!")
             } catch (e: Exception) {
-                if (otpCode.trim() == "123456" || otpCode.trim() == "111111") {
-                    // Cache local mock buyer session
-                    val name = emailStr.substringBefore("@").replaceFirstChar { it.uppercase() }
-                    repository.saveUserProfile(
-                        UserProfileEntity(
-                            email = emailStr,
-                            name = name,
-                            phoneNumber = "",
-                            passwordHash = "user123",
-                            walletBalance = 120.00,
-                            couponCount = 3
-                        )
-                    )
-                    _activeUser.value = LoginResponse(emailStr, name, "user", "LOCAL_MOCK_TOKEN")
-                    _checkoutSuccess.emit("Registered successfully in offline simulated database!")
-                    _currentScreen.value = ShopScreen.STORES
-                    onResult(true, "Success simulated offline!")
-                } else {
-                    _errorMessage.emit("Verification failed: ${e.message ?: "Invalid code"}")
-                    onResult(false, e.message ?: "Invalid verification code.")
-                }
+                _errorMessage.emit("Verification failed: ${e.message ?: "Invalid code"}")
+                onResult(false, e.message ?: "Invalid verification code.")
             }
         }
     }

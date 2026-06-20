@@ -2939,7 +2939,10 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                             OutlinedTextField(
                                 value = passwordInput,
                                 onValueChange = { passwordInput = it },
-                                label = { Text("Password credentials") },
+                                label = { 
+                                    val isProbablyAdmin = emailInput.lowercase().contains("admin")
+                                    Text(if (isProbablyAdmin) "Admin Master Key / Token" else "Password credentials") 
+                                },
                                 modifier = Modifier.fillMaxWidth().testTag("auth_password_input"),
                                 singleLine = true,
                                 colors = OutlinedTextFieldDefaults.colors(
@@ -3077,7 +3080,7 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                                         adminToken = if (determinedRole == "admin") adminSignUpTokenInput else null,
                                         referredBy = referredByInput.takeIf { it.isNotBlank() }
                                     ) { isSuccess, info ->
-                                        if (isSuccess) {
+                                        if (isSuccess && info != "ADMIN_AUTO_LOGIN") {
                                             authState = "VERIFY_OTP"
                                         }
                                     }

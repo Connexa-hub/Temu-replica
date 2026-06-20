@@ -160,7 +160,11 @@ data class UpdateProfileResponse(
 
 data class GenericMsgResponse(
     val success: Boolean,
-    val message: String
+    val message: String,
+    val email: String? = null,
+    val name: String? = null,
+    val role: String? = null,
+    val token: String? = null
 )
 
 data class RegisterOtpRequest(

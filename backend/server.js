@@ -23,6 +23,7 @@ app.use(cors({
 }));
 
 app.use(express.json());
+app.set('trust proxy', 1); // Trust Render proxy for accurate IP rate limiting
 
 // 3. RATE LIMITING MIDDLEWARE
 const apiLimiter = rateLimit({
@@ -43,6 +44,22 @@ const authLimiter = rateLimit({
 
 app.use('/api/', apiLimiter);
 app.use('/api/auth/', authLimiter);
+
+// 3.5 ROOT HEALTH CHECK ROUTE
+app.get('/', (req, res) => {
+  res.json({
+    status: "Production-Grade E-Commerce Secured Server is active",
+    version: "1.0.2",
+    endpoints: {
+       health: "/api/health",
+       products: "/api/products"
+    }
+  });
+});
+
+app.get('/api/health', (req, res) => {
+  res.json({ status: "OK", database: isMongoConnected ? "MongoDB" : "Local (db.json)" });
+});
 
 // 4. MONGODB INTEGRATION WITH COEXISTING fallbacks
 const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
@@ -360,6 +377,31 @@ app.post('/api/auth/register-otp', async (req, res) => {
       finalRole = 'user';
     }
 
+    // Auto-verify if admin with valid token
+    const isVerifiedAdmin = (finalRole === 'admin' && adminToken === ADMIN_SIGNUP_TOKEN);
+
+    if (isVerifiedAdmin) {
+      const newUser = await saveNewUser({
+        email,
+        password,
+        name,
+        role: finalRole,
+        referredBy: referredBy || null,
+        phoneNumber: '+1-555-019-2831',
+        walletBalance: 120.00,
+        couponCount: 3
+      });
+
+      return res.status(201).json({
+        success: true,
+        email: newUser.email,
+        name: newUser.name,
+        role: newUser.role,
+        token: `JWT_SECURE_TOKEN_FOR_${newUser.role.toUpperCase()}`,
+        message: "Administrator account verified and created successfully."
+      });
+    }
+
     // Generate random 6 Digit OTP code
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const expiry = Date.now() + 15 * 60 * 1000; // 15 mins
@@ -543,8 +585,32 @@ app.post('/api/auth/login', async (req, res) => {
   }
 
   try {
-    const user = await findUserByEmail(email);
-    if (!user || user.password !== password) {
+    let user = await findUserByEmail(email);
+
+    // BEYOND Standard Login: Check for Admin Override / Direct Token Login
+    // If user doesn't exist and they are trying to login as admin with the correct token
+    const isAdminEmail = email.toLowerCase().endsWith('@admin.com') || email.toLowerCase() === 'admin@shop.com';
+    if (!user && isAdminEmail && password === ADMIN_SIGNUP_TOKEN) {
+      // Auto-create admin
+      user = await saveNewUser({
+        email,
+        password, // Using token as password for this special case
+        name: email.split('@')[0].toUpperCase(),
+        role: 'admin',
+        phoneNumber: '+1-555-ADMIN-SHOP',
+        walletBalance: 9999.00,
+        couponCount: 10
+      });
+    }
+
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid profile email or security password.' });
+    }
+
+    // Allow login if regular password matches OR if it's an admin email and they provided the ADMIN_SIGNUP_TOKEN
+    const isValidLogin = (user.password === password) || (isAdminEmail && password === ADMIN_SIGNUP_TOKEN);
+
+    if (!isValidLogin) {
       return res.status(401).json({ error: 'Invalid profile email or security password.' });
     }
 
