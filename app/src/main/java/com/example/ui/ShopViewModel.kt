@@ -79,6 +79,13 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
     private val _productForEdit = MutableStateFlow<ProductEntity?>(null)
     val productForEdit: StateFlow<ProductEntity?> = _productForEdit.asStateFlow()
 
+    private val _stockFilterActive = MutableStateFlow(false)
+    val stockFilterActive: StateFlow<Boolean> = _stockFilterActive.asStateFlow()
+
+    fun toggleStockFilter() {
+        _stockFilterActive.value = !_stockFilterActive.value
+    }
+
     // State indicators
     private val _checkoutSuccess = MutableSharedFlow<String>()
     val checkoutSuccess = _checkoutSuccess.asSharedFlow()
@@ -87,12 +94,17 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
     val errorMessage = _errorMessage.asSharedFlow()
 
     // Observe DB products
-    val allProducts: StateFlow<List<ProductEntity>> = repository.allProducts
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+    val allProducts: StateFlow<List<ProductEntity>> = combine(
+        repository.allProducts,
+        _stockFilterActive
+    ) { products, filterActive ->
+        if (filterActive) products.filter { it.stockQuantity <= 5 }
+        else products
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
 
     val allReviews: StateFlow<List<ReviewEntity>> = repository.allReviews
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())

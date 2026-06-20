@@ -48,7 +48,8 @@ data class NetworkProduct(
     val discountPercent: Int,
     val imageUrl: String,
     val stockQuantity: Int,
-    val salesCount: Int
+    val salesCount: Int,
+    val brand: String? = null
 ) {
     fun toEntity(): ProductEntity = ProductEntity(
         id = id,
@@ -59,7 +60,8 @@ data class NetworkProduct(
         discountPercent = discountPercent,
         imageUrl = imageUrl,
         stockQuantity = stockQuantity,
-        salesCount = salesCount
+        salesCount = salesCount,
+        brand = brand ?: "Temu Signature"
     )
 }
 

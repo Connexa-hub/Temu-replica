@@ -4106,6 +4106,7 @@ fun AdminDashboardScreen(viewModel: ShopViewModel) {
     val selectedUser by viewModel.selectedAdminSessionUser.collectAsStateWithLifecycle()
     val selectedChatMessages by viewModel.adminSelectedChatHistory.collectAsStateWithLifecycle()
     val lowStockProducts by viewModel.lowStockProducts.collectAsStateWithLifecycle()
+    val stockFilterActive by viewModel.stockFilterActive.collectAsStateWithLifecycle()
 
     var activeTab by remember { mutableIntStateOf(0) } // 0: Chats, 1: Operations
     var responseInputText by remember { mutableStateOf("") }
@@ -4413,9 +4414,25 @@ fun AdminDashboardScreen(viewModel: ShopViewModel) {
                                 Text("Inventory Count:", fontSize = 11.sp, color = Color.Gray)
                                 Text("$totalStock", fontSize = 14.sp, fontWeight = FontWeight.Black, color = DarkText)
                             }
-                            Column {
+                            Column(
+                                modifier = Modifier
+                                    .clickable { viewModel.toggleStockFilter() }
+                                    .padding(4.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
                                 Text("Low Stock Alert:", fontSize = 11.sp, color = Color.Gray)
-                                Text("$lowStockCount", fontSize = 14.sp, fontWeight = FontWeight.Black, color = if (lowStockCount > 0) AlertRed else PositiveGreen)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        "$lowStockCount",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = if (lowStockCount > 0) AlertRed else PositiveGreen
+                                    )
+                                    if (stockFilterActive) {
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Icon(Icons.Default.FilterList, contentDescription = null, modifier = Modifier.size(12.dp), tint = AlertRed)
+                                    }
+                                }
                             }
                         }
                     }
@@ -4557,6 +4574,7 @@ fun AdminProductDialog(product: ProductEntity, viewModel: ShopViewModel, onDismi
     var name by remember { mutableStateOf(product.name) }
     var description by remember { mutableStateOf(product.description) }
     var category by remember { mutableStateOf(product.category) }
+    var brand by remember { mutableStateOf(product.brand) }
     var priceStr by remember { mutableStateOf(product.price.toString()) }
     var stockStr by remember { mutableStateOf(product.stockQuantity.toString()) }
     var imageUrl by remember { mutableStateOf(product.imageUrl) }
@@ -4574,51 +4592,73 @@ fun AdminProductDialog(product: ProductEntity, viewModel: ShopViewModel, onDismi
     Dialog(onDismissRequest = onDismiss) {
         Card(
             shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White)
+            modifier = Modifier.fillMaxWidth().heightIn(max = 600.dp).padding(vertical = 24.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
         ) {
-            Column(modifier = Modifier.padding(16.dp).verticalScroll(rememberScrollState())) {
-                Text(if (product.id == 0L) "Add Product" else "Edit Product", fontWeight = FontWeight.Black, fontSize = 18.sp, color = TemuOrangePrimary)
-                Spacer(modifier = Modifier.height(12.dp))
-                
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("App Name", fontSize = 11.sp) }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = category, onValueChange = { category = it }, label = { Text("Category", fontSize = 11.sp) }, modifier = Modifier.fillMaxWidth())
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                Column(modifier = Modifier.fillMaxWidth().background(Color(0xFFFFF5F2), RoundedCornerShape(8.dp)).padding(8.dp)) {
-                    Text("Product Description (AI Assisted)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TemuOrangePrimary)
-                    OutlinedTextField(
-                        value = description, 
-                        onValueChange = { description = it }, 
-                        modifier = Modifier.fillMaxWidth().height(100.dp),
-                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Header
+                Box(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                    Text(
+                        if (product.id == 0L) "Add New Global Product" else "Edit Merchandise Catalog",
+                        fontWeight = FontWeight.Black,
+                        fontSize = 18.sp,
+                        color = TemuOrangePrimary
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Button(
-                        onClick = { viewModel.generateAIDescription(name, category) },
-                        modifier = Modifier.align(Alignment.End),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Black),
-                        enabled = !isAILoading
-                    ) {
-                        if (isAILoading) CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)
-                        else {
-                            Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Magic AI Description", fontSize = 10.sp)
+                }
+                
+                Divider(color = Color(0xFFEEEEEE))
+
+                // Scrollable Content
+                Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp)) {
+                    OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Product Name", fontSize = 11.sp) }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = category, onValueChange = { category = it }, label = { Text("Category", fontSize = 11.sp) }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = brand, onValueChange = { brand = it }, label = { Text("Brand / Signature (Exclusive)", fontSize = 11.sp) }, modifier = Modifier.fillMaxWidth())
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    Column(modifier = Modifier.fillMaxWidth().background(Color(0xFFFFF5F2), RoundedCornerShape(8.dp)).padding(12.dp)) {
+                        Text("Product Description (AI Assisted)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TemuOrangePrimary)
+                        OutlinedTextField(
+                            value = description, 
+                            onValueChange = { description = it }, 
+                            modifier = Modifier.fillMaxWidth().height(120.dp),
+                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
+                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = TemuOrangePrimary)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = { viewModel.generateAIDescription(name, category + " by " + brand) },
+                            modifier = Modifier.align(Alignment.End),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Black),
+                            enabled = !isAILoading,
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            if (isAILoading) CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)
+                            else {
+                                Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Refine with Magic AI", fontSize = 10.sp)
+                            }
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(value = priceStr, onValueChange = { priceStr = it }, label = { Text("Price ($)", fontSize = 11.sp) }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                    OutlinedTextField(value = stockStr, onValueChange = { stockStr = it }, label = { Text("Initial Stock", fontSize = 11.sp) }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                    OutlinedTextField(value = imageUrl, onValueChange = { imageUrl = it }, label = { Text("Image Asset Key", fontSize = 11.sp) }, modifier = Modifier.fillMaxWidth())
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(value = priceStr, onValueChange = { priceStr = it }, label = { Text("Price", fontSize = 11.sp) }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                OutlinedTextField(value = stockStr, onValueChange = { stockStr = it }, label = { Text("Stock", fontSize = 11.sp) }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                OutlinedTextField(value = imageUrl, onValueChange = { imageUrl = it }, label = { Text("Image URL / Key", fontSize = 11.sp) }, modifier = Modifier.fillMaxWidth())
-
-                Spacer(modifier = Modifier.height(16.dp))
+                Divider(color = Color(0xFFEEEEEE))
                 
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel") }
+                // Footer Buttons (Pinned)
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    TextButton(onClick = onDismiss, modifier = Modifier.weight(1f).height(44.dp)) { 
+                        Text("Discard", color = Color.Gray) 
+                    }
                     Button(
                         onClick = {
                             val p = product.copy(
@@ -4627,16 +4667,18 @@ fun AdminProductDialog(product: ProductEntity, viewModel: ShopViewModel, onDismi
                                 category = category,
                                 price = priceStr.toDoubleOrNull() ?: 0.0,
                                 stockQuantity = stockStr.toIntOrNull() ?: 0,
-                                imageUrl = imageUrl
+                                imageUrl = imageUrl,
+                                brand = brand
                             )
                             if (product.id == 0L) viewModel.createAdminProduct(p)
                             else viewModel.updateAdminProduct(p)
                             onDismiss()
                         },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(containerColor = TemuOrangePrimary)
+                        modifier = Modifier.weight(1.5f).height(44.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = TemuOrangePrimary),
+                        shape = RoundedCornerShape(8.dp)
                     ) {
-                        Text("Save Product")
+                        Text("Commit to Catalog", fontWeight = FontWeight.Bold)
                     }
                 }
             }

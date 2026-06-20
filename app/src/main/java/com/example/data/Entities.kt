@@ -13,7 +13,8 @@ data class ProductEntity(
     val discountPercent: Int,
     val imageUrl: String,
     val stockQuantity: Int,
-    val salesCount: Int
+    val salesCount: Int,
+    val brand: String = "Temu Signature"
 ) {
     val discountedPrice: Double
         get() = price * (1.0 - (discountPercent / 100.0))

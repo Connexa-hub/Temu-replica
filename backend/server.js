@@ -184,11 +184,11 @@ let localDb = {
 };
 
 const INITIAL_PRODUCTS = [
-  { id: 1, name: "Clearance Premium Fleece Hoodie", description: "Super warm inner brushed winter heavy pullover. Oversized baggy fit suitable for casual outdoor activities.", category: "Fashion", price: 39.99, discountPercent: 75, imageUrl: "fashion_hoodie", stockQuantity: 45, salesCount: 12 },
-  { id: 2, name: "Ultra Bass wireless Noise-Canceling Buds", description: "Active high fidelity ambient cancelation with fast charge case. IPX7 waterproof rating for workout and heavy rain.", category: "Electronics", price: 129.99, discountPercent: 80, imageUrl: "electronics_buds", stockQuantity: 8, salesCount: 64 },
-  { id: 3, name: "Professional Dual Foil Electric Beard Shaver", description: "Skin friendly hypoallergenic foil blades. Includes intelligent clean station, dry/wet mode water washing support.", category: "Home & Living", price: 49.99, discountPercent: 40, imageUrl: "home_shaver", stockQuantity: 10, salesCount: 8 },
-  { id: 4, name: "Hydrating Hyaluronic Recovery Facial Cream", description: "Smooth moisturize repairs dry spots overnight. Organic lightweight formula suited for skin glow recovery therapy.", category: "Beauty & Health", price: 24.99, discountPercent: 15, imageUrl: "beauty_cream", stockQuantity: 120, salesCount: 30 },
-  { id: 5, name: "High Torque Retro RC Stunt Racing Car", description: "Interference free 2.4GHz remote control steering. Multi terrain shock absorbers for high speed backflips and spinning.", category: "Toys & Games", price: 89.99, discountPercent: 60, imageUrl: "toys_car", stockQuantity: 14, salesCount: 154 }
+  { id: 1, name: "Clearance Premium Fleece Hoodie", description: "Super warm inner brushed winter heavy pullover. Oversized baggy fit suitable for casual outdoor activities.", category: "Fashion", price: 39.99, discountPercent: 75, imageUrl: "fashion_hoodie", stockQuantity: 45, salesCount: 12, brand: "Temu Essentials" },
+  { id: 2, name: "Ultra Bass wireless Noise-Canceling Buds", description: "Active high fidelity ambient cancelation with fast charge case. IPX7 waterproof rating for workout and heavy rain.", category: "Electronics", price: 129.99, discountPercent: 80, imageUrl: "electronics_buds", stockQuantity: 8, salesCount: 64, brand: "Temu audio" },
+  { id: 3, name: "Professional Dual Foil Electric Beard Shaver", description: "Skin friendly hypoallergenic foil blades. Includes intelligent clean station, dry/wet mode water washing support.", category: "Home & Living", price: 49.99, discountPercent: 40, imageUrl: "home_shaver", stockQuantity: 10, salesCount: 8, brand: "Temu Home" },
+  { id: 4, name: "Hydrating Hyaluronic Recovery Facial Cream", description: "Smooth moisturize repairs dry spots overnight. Organic lightweight formula suited for skin glow recovery therapy.", category: "Beauty & Health", price: 24.99, discountPercent: 15, imageUrl: "beauty_cream", stockQuantity: 120, salesCount: 30, brand: "Temu Glow" },
+  { id: 5, name: "High Torque Retro RC Stunt Racing Car", description: "Interference free 2.4GHz remote control steering. Multi terrain shock absorbers for high speed backflips and spinning.", category: "Toys & Games", price: 89.99, discountPercent: 60, imageUrl: "toys_car", stockQuantity: 14, salesCount: 154, brand: "Temu Toys" }
 ];
 
 function loadLocalDatabase() {
@@ -770,7 +770,7 @@ app.get('/api/products', async (req, res) => {
 
 // Create product (Admin)
 app.post('/api/products', async (req, res) => {
-  const { name, description, category, price, discountPercent, stockQuantity, imageUrl } = req.body;
+  const { name, description, category, price, discountPercent, stockQuantity, imageUrl, brand } = req.body;
 
   if (!name || !category || price === undefined || stockQuantity === undefined) {
     return res.status(400).json({ error: 'Required fields missing for product creation.' });
@@ -791,7 +791,8 @@ app.post('/api/products', async (req, res) => {
         discountPercent: Number(discountPercent || 0),
         imageUrl: imageUrl || "promo_banner",
         stockQuantity: Number(stockQuantity),
-        salesCount: 0
+        salesCount: 0,
+        brand: brand || "Temu Signature"
       });
       res.status(201).json(newProduct);
     } else {
@@ -805,7 +806,8 @@ app.post('/api/products', async (req, res) => {
         discountPercent: Number(discountPercent || 0),
         imageUrl: imageUrl || "promo_banner",
         stockQuantity: Number(stockQuantity),
-        salesCount: 0
+        salesCount: 0,
+        brand: brand || "Temu Signature"
       };
       localDb.products.push(newProduct);
       saveLocalDatabase();
@@ -819,7 +821,7 @@ app.post('/api/products', async (req, res) => {
 // Update product (Admin)
 app.put('/api/products/:id', async (req, res) => {
   const pid = Number(req.params.id);
-  const { name, description, category, price, discountPercent, stockQuantity } = req.body;
+  const { name, description, category, price, discountPercent, stockQuantity, brand } = req.body;
 
   try {
     if (isMongoConnected) {
@@ -832,6 +834,7 @@ app.put('/api/products/:id', async (req, res) => {
       if (price !== undefined) p.price = Number(price);
       if (discountPercent !== undefined) p.discountPercent = Number(discountPercent);
       if (stockQuantity !== undefined) p.stockQuantity = Number(stockQuantity);
+      if (brand !== undefined) p.brand = brand;
 
       await p.save();
       res.json(p);
@@ -846,7 +849,8 @@ app.put('/api/products/:id', async (req, res) => {
         category: category !== undefined ? category : localDb.products[pIdx].category,
         price: price !== undefined ? Number(price) : localDb.products[pIdx].price,
         discountPercent: discountPercent !== undefined ? Number(discountPercent) : localDb.products[pIdx].discountPercent,
-        stockQuantity: stockQuantity !== undefined ? Number(stockQuantity) : localDb.products[pIdx].stockQuantity
+        stockQuantity: stockQuantity !== undefined ? Number(stockQuantity) : localDb.products[pIdx].stockQuantity,
+        brand: brand !== undefined ? brand : localDb.products[pIdx].brand
       };
       saveLocalDatabase();
       res.json(localDb.products[pIdx]);
