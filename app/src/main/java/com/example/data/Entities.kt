@@ -54,3 +54,38 @@ data class ChatMessageEntity(
     val timestamp: Long
 )
 
+@Entity(tableName = "product_reviews")
+data class ReviewEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0L,
+    val productId: Long,
+    val userEmail: String,
+    val userName: String,
+    val rating: Int,
+    val reviewText: String,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "app_configs")
+data class AppConfigEntity(
+    @PrimaryKey val id: String = "globals",
+    val sliderImages: String, // comma-separated strings of names
+    val promoText: String,
+    val adText: String,
+    val flashSalesEnds: Long, // timestamp
+    val flashSalesDiscount: Int, // e.g. 50%
+    val carouselEditableContent: String, // dynamic semicolon-separated title list
+    val algorithmicPromotionEnabled: Boolean = true
+)
+
+@Entity(tableName = "user_profiles")
+data class UserProfileEntity(
+    @PrimaryKey val email: String,
+    val name: String,
+    val phoneNumber: String,
+    val passwordHash: String,
+    val walletBalance: Double = 120.00,
+    val couponCount: Int = 3,
+    val promoCodeUsed: String = ""
+)
+
+

@@ -12,7 +12,21 @@ class ShopRepository(private val db: AppDatabase) {
     private val cartDao = db.cartDao()
     private val orderDao = db.orderDao()
     private val chatDao = db.chatDao()
+    private val reviewDao = db.reviewDao()
+    private val appConfigDao = db.appConfigDao()
+    private val userProfileDao = db.userProfileDao()
     private val seedMutex = Mutex()
+
+    fun getReviewsForProduct(productId: Long): Flow<List<ReviewEntity>> = reviewDao.getReviewsForProduct(productId)
+    val allReviews: Flow<List<ReviewEntity>> = reviewDao.getAllReviews()
+    suspend fun insertReview(review: ReviewEntity) = reviewDao.insertReview(review)
+
+    val appConfig: Flow<AppConfigEntity?> = appConfigDao.getAppConfig()
+    suspend fun saveAppConfig(config: AppConfigEntity) = appConfigDao.saveAppConfig(config)
+
+    fun getUserProfile(email: String): Flow<UserProfileEntity?> = userProfileDao.getUserProfile(email)
+    suspend fun saveUserProfile(profile: UserProfileEntity) = userProfileDao.saveUserProfile(profile)
+
 
     fun getChatHistory(userId: String): Flow<List<ChatMessageEntity>> = chatDao.getChatHistory(userId)
     val distinctChatUsers: Flow<List<String>> = chatDao.getDistinctChatUsers()
@@ -232,7 +246,47 @@ class ShopRepository(private val db: AppDatabase) {
 
         productDao.insertProducts(mockProducts)
 
+        // Seed some beautiful user accounts with preset wallet deposits & coupons
+        val defaultUserProfile = UserProfileEntity(
+            email = "user@temu.com",
+            name = "Jack Buyer",
+            phoneNumber = "1-201-555-0143",
+            passwordHash = "user123",
+            walletBalance = 245.00,
+            couponCount = 3,
+            promoCodeUsed = "WELCOME50"
+        )
+        userProfileDao.saveUserProfile(defaultUserProfile)
+
+        // Seed dynamic frontend app configurations (Carousel, ad banners, algos)
+        val defaultAppConfig = AppConfigEntity(
+            id = "globals",
+            sliderImages = "SUMMER_FESTIVAL;EXTRA_40_OFF;FREE_SHIPPING;FLASH_DEALS",
+            promoText = "🔥 TEMU SUPER DISCOUNTS: Get up to 90% off + Free Shipping on your first 3 orders!",
+            adText = "⚡ Flash Deals end soon. Complete order using secure Wallet Balance to claim extra coupons.",
+            flashSalesEnds = System.currentTimeMillis() + 86400000L, // 24 hours from seed
+            flashSalesDiscount = 40,
+            carouselEditableContent = "🌴 Summer Clearance Extravaganza;🚚 Lightning Express Delivery Guaranteed;💳 100% Refund Protect Cover",
+            algorithmicPromotionEnabled = true
+        )
+        appConfigDao.saveAppConfig(defaultAppConfig)
+
+        // Seed multiple positive and realistic product reviews
+        val mockReviews = listOf(
+            ReviewEntity(productId = 1, userEmail = "customer1@temu.com", userName = "Sarah Taylor", rating = 5, reviewText = "So soft and oversized! Exactly what I was looking for. Will definitely buy in more colors!"),
+            ReviewEntity(productId = 1, userEmail = "buyer9@gmail.com", userName = "Mike J.", rating = 4, reviewText = "Thick hoodie, keeps me super warm. Ribbed cuffs are snug. Shipping took about 5 days."),
+            ReviewEntity(productId = 2, userEmail = "jack@example.com", userName = "Jack Buyer", rating = 5, reviewText = "Amazing spatial bass quality for this price point! Noise cancellation totally blocks office distraction."),
+            ReviewEntity(productId = 2, userEmail = "techreview@yahoo.com", userName = "Alex Rivers", rating = 4, reviewText = "The 30-hour battery is no joke. Only charged it once in a week. Case is quite sleek."),
+            ReviewEntity(productId = 3, userEmail = "mugfanatic@hotmail.com", userName = "Eleanor V.", rating = 5, reviewText = "A total gamechanger for my morning bulletproof coffee. Stainless interior rinses clean instantly!"),
+            ReviewEntity(productId = 4, userEmail = "beautyqueen@outlook.com", userName = "Amara K.", rating = 5, reviewText = "Super rich pigment! Keeps lips hydrated and matte all day. The nude crimson shade is stunning!"),
+            ReviewEntity(productId = 7, userEmail = "gamer2025@gaming.com", userName = "Kinsley Vance", rating = 5, reviewText = "Syncs immediately with my media device. Stunning rich colors. Completely changed my cozy setup atmosphere!")
+        )
+        for (rev in mockReviews) {
+            reviewDao.insertReview(rev)
+        }
+
         // Seed some gorgeous mock orders from the past 5 days to populate the dashboard analytics instantly!
+
         val dayMillis = 24 * 60 * 60 * 1000L
         val now = System.currentTimeMillis()
 

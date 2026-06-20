@@ -11,9 +11,12 @@ import androidx.room.RoomDatabase
         CartItemEntity::class,
         OrderEntity::class,
         OrderItemEntity::class,
-        ChatMessageEntity::class
+        ChatMessageEntity::class,
+        ReviewEntity::class,
+        AppConfigEntity::class,
+        UserProfileEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -21,6 +24,9 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun cartDao(): CartDao
     abstract fun orderDao(): OrderDao
     abstract fun chatDao(): ChatDao
+    abstract fun reviewDao(): ReviewDao
+    abstract fun appConfigDao(): AppConfigDao
+    abstract fun userProfileDao(): UserProfileDao
 
     companion object {
         @Volatile

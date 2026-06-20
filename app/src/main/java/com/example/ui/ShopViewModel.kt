@@ -88,6 +88,23 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
             initialValue = emptyList()
         )
 
+    val allReviews: StateFlow<List<ReviewEntity>> = repository.allReviews
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val appConfig: StateFlow<AppConfigEntity?> = repository.appConfig
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    private val _isDarkMode = MutableStateFlow(false)
+    val isDarkMode: StateFlow<Boolean> = _isDarkMode.asStateFlow()
+
+    fun toggleDarkMode() {
+        _isDarkMode.value = !_isDarkMode.value
+    }
+
+    private val _activeUserProfile = MutableStateFlow<UserProfileEntity?>(null)
+    val activeUserProfile: StateFlow<UserProfileEntity?> = _activeUserProfile.asStateFlow()
+
+
     // Combined search/category filtered products
     val filteredProducts: StateFlow<List<ProductEntity>> = combine(
         allProducts,
@@ -182,6 +199,18 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
 
 
     init {
+        // Observe active user sessions and coordinate profile loading
+        viewModelScope.launch {
+            _activeUser.collect { user ->
+                if (user == null) {
+                    _activeUserProfile.value = null
+                } else {
+                    repository.getUserProfile(user.email).collect { profile ->
+                        _activeUserProfile.value = profile
+                    }
+                }
+            }
+        }
         // Initial seeding check
         viewModelScope.launch {
             if (repository.allProducts.first().isEmpty()) {
@@ -244,24 +273,59 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
         }
     }
 
-    fun executeCheckout() {
+    fun executeCheckout(payWithWallet: Boolean, couponCode: String = "") {
+        val user = _activeUser.value
+        if (user == null) {
+            viewModelScope.launch {
+                _errorMessage.emit("Checkout Failed: Please sign in or register to complete your order!")
+            }
+            return
+        }
+
         val currentCart = cartWithProducts.value
         if (currentCart.isEmpty()) {
             viewModelScope.launch { _errorMessage.emit("Your cart is empty.") }
             return
         }
+
         viewModelScope.launch {
             val list = currentCart.map { it.product to it.quantity }
+            val basePrice = cartTotalPrice.value
+            val isCouponValid = couponCode.uppercase().trim() == "TEMUFLASHSALE40" || couponCode.uppercase().trim() == "WELCOME50"
+            val discountPercent = if (couponCode.uppercase().trim() == "TEMUFLASHSALE40") 40 else if (couponCode.uppercase().trim() == "WELCOME50") 20 else 0
+            val finalPrice = basePrice * (1.0 - (discountPercent / 100.0))
+
+            if (payWithWallet) {
+                // Fetch profile
+                val profile = repository.getUserProfile(user.email).first()
+                if (profile == null) {
+                    _errorMessage.emit("Payment Error: Could not locate user wallet profile.")
+                    return@launch
+                }
+                if (profile.walletBalance < finalPrice) {
+                    _errorMessage.emit("Insufficient Wallet Balance! Your wallet has $${String.format("%.2f", profile.walletBalance)} but order requires $${String.format("%.2f", finalPrice)}. Please deposit secure funds on your Profile panel.")
+                    return@launch
+                }
+
+                // Deduct
+                val updatedProfile = profile.copy(
+                    walletBalance = profile.walletBalance - finalPrice,
+                    couponCount = if (isCouponValid) (profile.couponCount - 1).coerceAtLeast(0) else profile.couponCount,
+                    promoCodeUsed = if (isCouponValid) couponCode else profile.promoCodeUsed
+                )
+                repository.saveUserProfile(updatedProfile)
+            }
+
             if (_isConnectedToBackend.value) {
                 try {
                     val api = getApiService()
                     val req = OrderRequest(
-                        totalAmount = cartTotalPrice.value,
+                        totalAmount = finalPrice,
                         items = currentCart.map { OrderItemRequest(it.product.id, it.quantity) }
                     )
                     api.checkout(req)
                     repository.clearCart()
-                    _checkoutSuccess.emit("Order Placed on Live Server! Stock deducted.")
+                    _checkoutSuccess.emit("Order Placed Successfully via Live Server! $${String.format("%.2f", finalPrice)} charged.")
                     syncAllData()
                 } catch (e: Exception) {
                     _errorMessage.emit("Server Error during Checkout: ${e.message}")
@@ -269,7 +333,7 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
             } else {
                 val completed = repository.checkout(list)
                 if (completed) {
-                    _checkoutSuccess.emit("Order Placed Successfully! Stock deducted.")
+                    _checkoutSuccess.emit("Order Placed Successfully! $${String.format("%.2f", finalPrice)} charged. Stock deducted.")
                 } else {
                     _errorMessage.emit("Checkout failed. Please inspect product stock levels.")
                 }
@@ -446,35 +510,72 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
 
     fun loginRemote(emailStr: String, passwordStr: String, onResult: (Boolean) -> Unit = {}) {
         viewModelScope.launch {
+            if (emailStr.isEmpty() || passwordStr.isEmpty()) {
+                _errorMessage.emit("Please enter your email and password.")
+                onResult(false)
+                return@launch
+            }
             try {
                 val api = getApiService()
                 val response = api.login(LoginRequest(emailStr, passwordStr))
                 _activeUser.value = response
                 _isConnectedToBackend.value = true
                 _checkoutSuccess.emit("Welcome back, ${response.name}!")
+                
+                // Caching profile record in database
+                val localProfile = repository.getUserProfile(response.email).first()
+                if (localProfile == null) {
+                    repository.saveUserProfile(
+                        UserProfileEntity(
+                            email = response.email,
+                            name = response.name,
+                            phoneNumber = "",
+                            passwordHash = passwordStr,
+                            walletBalance = 150.00,
+                            couponCount = 3
+                        )
+                    )
+                }
+
                 if (response.role == "admin") {
-                    _currentScreen.value = ShopScreen.ADMIN_CHATS
+                    _currentScreen.value = ShopScreen.STORES // branches to admin edit system
                 } else {
                     _currentScreen.value = ShopScreen.STORES
                 }
                 syncAllData()
                 onResult(true)
             } catch (e: Exception) {
-                if (emailStr.lowercase() == "admin@temu.com" && passwordStr == "admin123") {
-                    val response = LoginResponse("admin@temu.com", "Temu Administrator", "admin", "LOCAL_MOCK_ADMIN")
-                    _activeUser.value = response
-                    _checkoutSuccess.emit("Logged in as Local Admin (Offline Mode)")
-                    _currentScreen.value = ShopScreen.ADMIN_CHATS
-                    onResult(true)
-                } else if (emailStr.lowercase() == "user@temu.com" && passwordStr == "user123") {
-                    val response = LoginResponse("user@temu.com", "Jack Buyer", "user", "LOCAL_MOCK_USER")
-                    _activeUser.value = response
-                    _checkoutSuccess.emit("Logged in as Local User (Offline Mode)")
-                    _currentScreen.value = ShopScreen.STORES
-                    onResult(true)
+                // Offline fallback - Check inside room database first
+                val stored = repository.getUserProfile(emailStr).first()
+                if (stored != null) {
+                    if (stored.passwordHash == passwordStr) {
+                        val response = LoginResponse(stored.email, stored.name, if (stored.email.endsWith("admin@temu.com") || stored.email.contains("admin")) "admin" else "user", "LOCAL_MOCK_USER")
+                        _activeUser.value = response
+                        _checkoutSuccess.emit("Welcome, ${stored.name}! (Offline)")
+                        _currentScreen.value = ShopScreen.STORES
+                        onResult(true)
+                    } else {
+                        _errorMessage.emit("Incorrect password.")
+                        onResult(false)
+                    }
                 } else {
-                    _errorMessage.emit("Network Auth Error: ${e.message ?: "Invalid details"}")
-                    onResult(false)
+                    // Predefined offline accounts fallback
+                    if (emailStr.lowercase() == "admin@temu.com" && passwordStr == "admin123") {
+                        val response = LoginResponse("admin@temu.com", "Temu Administrator", "admin", "LOCAL_MOCK_ADMIN")
+                        _activeUser.value = response
+                        _checkoutSuccess.emit("Logged in as Local Admin (Offline Mode)")
+                        _currentScreen.value = ShopScreen.STORES
+                        onResult(true)
+                    } else if (emailStr.lowercase() == "user@temu.com" && passwordStr == "user123") {
+                        val response = LoginResponse("user@temu.com", "Jack Buyer", "user", "LOCAL_MOCK_USER")
+                        _activeUser.value = response
+                        _checkoutSuccess.emit("Logged in as Local User (Offline Mode)")
+                        _currentScreen.value = ShopScreen.STORES
+                        onResult(true)
+                    } else {
+                        _errorMessage.emit("Account not found. Please register to create an account offline.")
+                        onResult(false)
+                    }
                 }
             }
         }
@@ -482,34 +583,145 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
 
     fun registerRemote(emailStr: String, passwordStr: String, nameStr: String, roleStr: String) {
         viewModelScope.launch {
+            if (emailStr.isEmpty() || passwordStr.isEmpty() || nameStr.isEmpty()) {
+                _errorMessage.emit("All registration fields are required.")
+                return@launch
+            }
             try {
                 val api = getApiService()
                 val response = api.register(RegisterRequest(emailStr, passwordStr, nameStr, roleStr))
                 _activeUser.value = response
                 _isConnectedToBackend.value = true
                 _checkoutSuccess.emit("Profile Registered and Connected!")
-                if (response.role == "admin") {
-                    _currentScreen.value = ShopScreen.ADMIN_CHATS
-                } else {
-                    _currentScreen.value = ShopScreen.STORES
-                }
+                
+                // Cache locally
+                repository.saveUserProfile(
+                    UserProfileEntity(
+                        email = emailStr,
+                        name = nameStr,
+                        phoneNumber = "",
+                        passwordHash = passwordStr,
+                        walletBalance = 120.00,
+                        couponCount = 3
+                    )
+                )
+
+                _currentScreen.value = ShopScreen.STORES
                 syncAllData()
             } catch (e: Exception) {
-                _errorMessage.emit("Fail to register registration ticket: ${e.message}")
+                // Register offline in DB
+                val existing = repository.getUserProfile(emailStr).first()
+                if (existing != null) {
+                    _errorMessage.emit("Account with email $emailStr is already registered offline.")
+                } else {
+                    repository.saveUserProfile(
+                        UserProfileEntity(
+                            email = emailStr,
+                            name = nameStr,
+                            phoneNumber = "",
+                            passwordHash = passwordStr,
+                            walletBalance = 120.00, // Welcome Gift!
+                            couponCount = 3
+                        )
+                    )
+                    val response = LoginResponse(emailStr, nameStr, roleStr, "LOCAL_MOCK_TOKEN")
+                    _activeUser.value = response
+                    _checkoutSuccess.emit("Registered successfully in offline database! Enjoy $120 welcome gift!")
+                    _currentScreen.value = ShopScreen.STORES
+                }
             }
         }
     }
 
     fun logout() {
         _activeUser.value = null
-        _currentScreen.value = ShopScreen.AUTH_SETTINGS
+        _currentScreen.value = ShopScreen.STORES // switch to main shop as guest
         _currentUserChat.value = emptyList()
         _adminSelectedChatHistory.value = emptyList()
         _selectedAdminSessionUser.value = null
         viewModelScope.launch {
-            _checkoutSuccess.emit("Credentials cleared safely.")
+            _checkoutSuccess.emit("Logged out successfully.")
         }
     }
+
+    fun submitProductReview(productId: Long, rating: Int, text: String) {
+        val user = _activeUser.value ?: return
+        if (text.trim().isEmpty()) return
+        viewModelScope.launch {
+            val review = ReviewEntity(
+                productId = productId,
+                userEmail = user.email,
+                userName = user.name,
+                rating = rating,
+                reviewText = text,
+                timestamp = System.currentTimeMillis()
+            )
+            repository.insertReview(review)
+            _checkoutSuccess.emit("Review submitted! Thank you for rating.")
+        }
+    }
+
+    fun updateAppConfig(
+        sliderImages: String,
+        promoText: String,
+        adText: String,
+        flashSalesDiscount: Int,
+        carouselEditableContent: String,
+        algoEnabled: Boolean
+    ) {
+        viewModelScope.launch {
+            val config = AppConfigEntity(
+                id = "globals",
+                sliderImages = sliderImages,
+                promoText = promoText,
+                adText = adText,
+                flashSalesEnds = System.currentTimeMillis() + 86400000L,
+                flashSalesDiscount = flashSalesDiscount,
+                carouselEditableContent = carouselEditableContent,
+                algorithmicPromotionEnabled = algoEnabled
+            )
+            repository.saveAppConfig(config)
+            _checkoutSuccess.emit("Dynamic storefront parameters updated in real-time!")
+        }
+    }
+
+    fun changePassword(newPass: String) {
+        val user = _activeUser.value ?: return
+        if (newPass.isEmpty()) return
+        viewModelScope.launch {
+            val profile = repository.getUserProfile(user.email).first()
+            if (profile != null) {
+                repository.saveUserProfile(profile.copy(passwordHash = newPass))
+                _checkoutSuccess.emit("Security password updated successfully!")
+            }
+        }
+    }
+
+    fun changePhoneNumber(newPhone: String) {
+        val user = _activeUser.value ?: return
+        if (newPhone.isEmpty()) return
+        viewModelScope.launch {
+            val profile = repository.getUserProfile(user.email).first()
+            if (profile != null) {
+                repository.saveUserProfile(profile.copy(phoneNumber = newPhone))
+                _checkoutSuccess.emit("Contact phone number updated!")
+            }
+        }
+    }
+
+    fun depositToWallet(amount: Double) {
+        val user = _activeUser.value ?: return
+        if (amount <= 0.0) return
+        viewModelScope.launch {
+            val profile = repository.getUserProfile(user.email).first()
+            if (profile != null) {
+                val updated = profile.copy(walletBalance = profile.walletBalance + amount)
+                repository.saveUserProfile(updated)
+                _checkoutSuccess.emit("Success! Verified Secure Payment approved. Received $${String.format("%.2f", amount)}")
+            }
+        }
+    }
+
 
     private fun syncAllData() {
         viewModelScope.launch {

@@ -12,6 +12,9 @@ import com.example.ui.ShopViewModel
 import com.example.ui.ShopViewModelFactory
 import com.example.ui.theme.MyApplicationTheme
 
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -26,7 +29,8 @@ class MainActivity : ComponentActivity() {
         
         enableEdgeToEdge()
         setContent {
-            MyApplicationTheme {
+            val isDark by viewModel.isDarkMode.collectAsState(initial = false)
+            MyApplicationTheme(darkTheme = isDark) {
                 ShopAppShell(viewModel = viewModel)
             }
         }

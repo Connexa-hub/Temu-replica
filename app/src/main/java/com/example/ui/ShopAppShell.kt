@@ -36,6 +36,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.ProductEntity
+import com.example.data.AppConfigEntity
+import androidx.compose.ui.text.font.FontStyle
 import com.example.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -109,6 +111,7 @@ fun ShopAppShell(viewModel: ShopViewModel) {
             selectedProduct?.let { product ->
                 ProductDetailsDialog(
                     product = product,
+                    viewModel = viewModel,
                     onDismiss = { viewModel.selectProduct(null) },
                     onAddToCart = { qty ->
                         viewModel.addToCart(product, qty)
@@ -243,6 +246,8 @@ fun StorefrontScreen(viewModel: ShopViewModel) {
     val query by viewModel.searchQuery.collectAsStateWithLifecycle()
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
     val products by viewModel.filteredProducts.collectAsStateWithLifecycle()
+    val activeUser by viewModel.activeUser.collectAsStateWithLifecycle()
+    val appConfig by viewModel.appConfig.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     // Category lists
@@ -359,9 +364,127 @@ fun StorefrontScreen(viewModel: ShopViewModel) {
                 .background(RetailBackground),
             contentPadding = PaddingValues(bottom = 16.dp)
         ) {
+            // --- ADMINISTRATIVE STOREFRONT PORTAL COMPONENT ---
+            if (activeUser != null && activeUser!!.role == "admin") {
+                item {
+                    var showAdminSection by remember { mutableStateOf(false) }
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = TemuOrangePrimary.copy(alpha = 0.05f)),
+                        border = BorderStroke(1.5.dp, TemuOrangePrimary),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().padding(16.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().clickable { showAdminSection = !showAdminSection },
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Filled.Settings, contentDescription = null, tint = TemuOrangePrimary)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Storefront Portal Editor (ADMIN MODE)", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TemuOrangePrimary)
+                                }
+                                Icon(
+                                    imageVector = if (showAdminSection) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                                    contentDescription = null,
+                                    tint = TemuOrangePrimary
+                                )
+                            }
+
+                            if (showAdminSection) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                
+                                var editPromoText by remember(appConfig) { mutableStateOf(appConfig?.promoText ?: "90% OFF SPECIAL EVENT") }
+                                var editAdText by remember(appConfig) { mutableStateOf(appConfig?.adText ?: "Flash Clearance Sale") }
+                                var editCarousel by remember(appConfig) { mutableStateOf(appConfig?.carouselEditableContent ?: "Flash Clearance Sale;Summer Electronics Deals;Global Clearance Event;Shop Like a Billionaire") }
+                                var editDiscountStr by remember(appConfig) { mutableStateOf(appConfig?.flashSalesDiscount?.toString() ?: "90") }
+                                var editSliderImages by remember(appConfig) { mutableStateOf(appConfig?.sliderImages ?: "promo_banner") }
+                                var editAlgoEnabled by remember(appConfig) { mutableStateOf(appConfig?.algorithmicPromotionEnabled ?: true) }
+
+                                OutlinedTextField(
+                                    value = editPromoText,
+                                    onValueChange = { editPromoText = it },
+                                    label = { Text("Promo Badge Label", fontSize = 11.sp) },
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+                                )
+                                OutlinedTextField(
+                                    value = editAdText,
+                                    onValueChange = { editAdText = it },
+                                    label = { Text("Primary Ad Subtitle", fontSize = 11.sp) },
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+                                )
+                                OutlinedTextField(
+                                    value = editCarousel,
+                                    onValueChange = { editCarousel = it },
+                                    label = { Text("Slide Titles (semicolon separated)", fontSize = 11.sp) },
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                    OutlinedTextField(
+                                        value = editDiscountStr,
+                                        onValueChange = { editDiscountStr = it },
+                                        label = { Text("Discount Label", fontSize = 11.sp) },
+                                        modifier = Modifier.weight(1f).padding(bottom = 8.dp),
+                                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+                                    )
+                                    OutlinedTextField(
+                                        value = editSliderImages,
+                                        onValueChange = { editSliderImages = it },
+                                        label = { Text("Banner Image ReferenceKey", fontSize = 11.sp) },
+                                        modifier = Modifier.weight(1f).padding(bottom = 8.dp),
+                                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+                                    )
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Promotion Coupon Pricing Optimization", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = DarkText)
+                                        Text("Runs internal pricing engine based on sales demand velocity", fontSize = 10.sp, color = Color.Gray)
+                                    }
+                                    Switch(
+                                        checked = editAlgoEnabled,
+                                        onCheckedChange = { editAlgoEnabled = it },
+                                        colors = SwitchDefaults.colors(checkedTrackColor = TemuOrangePrimary)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                Button(
+                                    onClick = {
+                                        val disc = editDiscountStr.toIntOrNull() ?: 90
+                                        viewModel.updateAppConfig(
+                                            sliderImages = editSliderImages,
+                                            promoText = editPromoText,
+                                            adText = editAdText,
+                                            flashSalesDiscount = disc,
+                                            carouselEditableContent = editCarousel,
+                                            algoEnabled = editAlgoEnabled
+                                        )
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = TemuOrangePrimary),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth().height(42.dp)
+                                ) {
+                                    Text("Publish Storefront Configuration", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Dynamic Seeding / Promotional Info
             item {
-                PromotionalHeroBanner(countdownTime = countdownStr, context = context)
+                PromotionalHeroBanner(countdownTime = countdownStr, context = context, appConfig = appConfig)
             }
 
             // Category Filter Row
@@ -488,9 +611,28 @@ fun StorefrontScreen(viewModel: ShopViewModel) {
 }
 
 @Composable
-fun PromotionalHeroBanner(countdownTime: String, context: Context) {
+fun PromotionalHeroBanner(countdownTime: String, context: Context, appConfig: AppConfigEntity?) {
     // Elegant layered card of hero banner with custom image reflection
     val imageId = getStoreBannerResourceId(context)
+
+    // Dynamic slideshow titles edited by administrator
+    val rawCarousel = appConfig?.carouselEditableContent ?: "Flash Clearance Sale;Summer Electronics Deals;Global Clearance Event;Shop Like a Billionaire"
+    val slideList = remember(rawCarousel) {
+        rawCarousel.split(";").map { it.trim() }.filter { it.isNotEmpty() }
+    }
+    
+    var currentSlideIdx by remember { mutableIntStateOf(0) }
+    LaunchedEffect(slideList) {
+        if (slideList.size > 1) {
+            while (true) {
+                delay(3000L)
+                currentSlideIdx = (currentSlideIdx + 1) % slideList.size
+            }
+        }
+    }
+    
+    val currentTitleText = if (slideList.isNotEmpty()) slideList[currentSlideIdx % slideList.size] else "Flash Clearance Sale"
+    val promoBadgeText = appConfig?.promoText ?: "90% OFF SPECIAL EVENT"
 
     Box(
         modifier = Modifier
@@ -545,7 +687,7 @@ fun PromotionalHeroBanner(countdownTime: String, context: Context) {
                     .padding(horizontal = 10.dp, vertical = 4.dp)
             ) {
                 Text(
-                    "90% OFF SPECIAL EVENT",
+                    promoBadgeText,
                     fontSize = 11.sp,
                     color = Color.Black,
                     fontWeight = FontWeight.Bold
@@ -554,7 +696,7 @@ fun PromotionalHeroBanner(countdownTime: String, context: Context) {
 
             Column {
                 Text(
-                    "Flash Clearance Sale",
+                    currentTitleText,
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Black,
                     color = Color.White
@@ -813,6 +955,15 @@ fun CartScreen(viewModel: ShopViewModel) {
     val totalAmount by viewModel.cartTotalPrice.collectAsStateWithLifecycle()
     val totalCount by viewModel.cartTotalItems.collectAsStateWithLifecycle()
 
+    val activeUser by viewModel.activeUser.collectAsStateWithLifecycle()
+    val profile by viewModel.activeUserProfile.collectAsStateWithLifecycle()
+
+    var payWithWallet by remember { mutableStateOf(false) }
+    var promoCodeInput by remember { mutableStateOf("") }
+
+    val discountPercent = if (promoCodeInput.uppercase().trim() == "TEMUFLASHSALE40") 40 else if (promoCodeInput.uppercase().trim() == "WELCOME50") 20 else 0
+    val postCouponTotal = totalAmount * (1.0 - (discountPercent / 100.0))
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -903,6 +1054,126 @@ fun CartScreen(viewModel: ShopViewModel) {
                         .fillMaxWidth()
                         .padding(16.dp)
                 ) {
+                    if (activeUser == null) {
+                        // User is GUEST. Prominent error block
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = AlertRed.copy(alpha = 0.08f)),
+                            border = BorderStroke(1.dp, AlertRed.copy(alpha = 0.5f)),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Lock, contentDescription = null, tint = AlertRed, modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        "Please sign in or register to complete product checkout.",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = AlertRed
+                                    )
+                                }
+                                Button(
+                                    onClick = { viewModel.selectScreen(ShopScreen.AUTH_SETTINGS) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = TemuOrangePrimary),
+                                    shape = RoundedCornerShape(16.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Text("Sign In", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    } else {
+                        // Logged in user options
+                        Column(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                            Text("Payment Gateway Option:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = DarkText)
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.clickable { payWithWallet = false }
+                                ) {
+                                    RadioButton(
+                                        selected = !payWithWallet,
+                                        onClick = { payWithWallet = false },
+                                        colors = RadioButtonDefaults.colors(selectedColor = TemuOrangePrimary)
+                                    )
+                                    Text("Cash On Delivery (COD)", fontSize = 12.sp, color = DarkText)
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.clickable { payWithWallet = true }
+                                ) {
+                                    RadioButton(
+                                        selected = payWithWallet,
+                                        onClick = { payWithWallet = true },
+                                        colors = RadioButtonDefaults.colors(selectedColor = TemuOrangePrimary)
+                                    )
+                                    Text("Temu Pay Secure Wallet", fontSize = 12.sp, color = DarkText)
+                                }
+                            }
+
+                            if (payWithWallet) {
+                                val currentBal = profile?.walletBalance ?: 120.00
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = PositiveGreen, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        "Secure Wallet Balance: ",
+                                        fontSize = 11.sp,
+                                        color = Color.Gray
+                                    )
+                                    Text(
+                                        String.format("$%.2f", currentBal),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (currentBal >= postCouponTotal) PositiveGreen else AlertRed
+                                    )
+                                    if (currentBal < postCouponTotal) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("(Shortage - Deposit under Profile)", fontSize = 10.sp, color = AlertRed, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+
+                            // Coupon Code field
+                            OutlinedTextField(
+                                value = promoCodeInput,
+                                onValueChange = { promoCodeInput = it },
+                                placeholder = { Text("Code: e.g. TEMUFLASHSALE40", fontSize = 11.sp, color = Color.Gray) },
+                                label = { Text("Have a coupon/promo code?", fontSize = 10.sp) },
+                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = TemuOrangePrimary,
+                                    unfocusedBorderColor = Color.LightGray
+                                ),
+                                singleLine = true
+                            )
+                            if (discountPercent > 0) {
+                                Text(
+                                    "✓ Promo applied: $discountPercent% Off savings on checkout total!",
+                                    color = PositiveGreen,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                            }
+                        }
+                    }
+
                     // Pricing breakdown
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -918,6 +1189,16 @@ fun CartScreen(viewModel: ShopViewModel) {
                     ) {
                         Text("Special Instant Discount:", fontSize = 13.sp, color = AlertRed, fontWeight = FontWeight.Medium)
                         Text(String.format("-$%.2f", savedAmount), fontSize = 13.sp, color = AlertRed, fontWeight = FontWeight.Bold)
+                    }
+                    if (discountPercent > 0) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Coupon Discount:", fontSize = 13.sp, color = AlertRed, fontWeight = FontWeight.Medium)
+                            Text(String.format("-$%.2f", totalAmount - postCouponTotal), fontSize = 13.sp, color = AlertRed, fontWeight = FontWeight.Bold)
+                        }
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Row(
@@ -938,7 +1219,7 @@ fun CartScreen(viewModel: ShopViewModel) {
                         Column {
                             Text("Total Amount:", fontSize = 13.sp, color = DarkText, fontWeight = FontWeight.Medium)
                             Text(
-                                String.format("$%.2f", totalAmount),
+                                String.format("$%.2f", if (discountPercent > 0) postCouponTotal else totalAmount),
                                 fontSize = 20.sp,
                                 fontWeight = FontWeight.Black,
                                 color = TemuOrangePrimary
@@ -947,7 +1228,8 @@ fun CartScreen(viewModel: ShopViewModel) {
 
                         // Order Checkout button (Accessible 48dp vertical target)
                         Button(
-                            onClick = { viewModel.executeCheckout() },
+                            onClick = { viewModel.executeCheckout(payWithWallet, promoCodeInput) },
+                            enabled = activeUser != null,
                             colors = ButtonDefaults.buttonColors(containerColor = TemuOrangePrimary),
                             modifier = Modifier
                                 .height(48.dp)
@@ -1401,10 +1683,14 @@ fun TrackingCheckpoint(time: String, status: String, isDone: Boolean) {
 @Composable
 fun ProductDetailsDialog(
     product: ProductEntity,
+    viewModel: ShopViewModel,
     onDismiss: () -> Unit,
     onAddToCart: (Int) -> Unit
 ) {
     var selectedQty by remember { mutableIntStateOf(1) }
+    
+    val allReviews by viewModel.allReviews.collectAsStateWithLifecycle()
+    val activeUser by viewModel.activeUser.collectAsStateWithLifecycle()
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -1511,7 +1797,7 @@ fun ProductDetailsDialog(
                                 fontSize = 14.sp,
                                 textDecoration = TextDecoration.LineThrough,
                                 color = Color.Gray
-                            )
+                             )
                         }
 
                         Spacer(modifier = Modifier.height(12.dp))
@@ -1632,6 +1918,139 @@ fun ProductDetailsDialog(
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Black
                             )
+                        }
+
+                        // --- CUSTOM RATINGS & COMMENTS DISPLAY ---
+                        Divider(modifier = Modifier.padding(vertical = 16.dp))
+                        Text(
+                            "Verified Buyer Reviews",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Black,
+                            color = DarkText
+                        )
+                    }
+                }
+
+                // Filter database reviews for this product
+                val matchingReviews = allReviews.filter { it.productId == product.id }
+                if (matchingReviews.isEmpty()) {
+                    item {
+                        Text(
+                            "No user reviews submitted yet. Rate this style below!",
+                            fontSize = 12.sp,
+                            color = Color.Gray,
+                            fontStyle = FontStyle.Italic,
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+                    }
+                } else {
+                    items(matchingReviews) { r ->
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = RetailBackground),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        r.userName,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = DarkText
+                                    )
+                                    Row {
+                                        repeat(5) { starIdx ->
+                                            Icon(
+                                                Icons.Filled.Star,
+                                                contentDescription = null,
+                                                tint = if (starIdx < r.rating) TemuYellowAccent else Color.LightGray,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(r.reviewText, fontSize = 12.sp, color = Color.DarkGray)
+                            }
+                        }
+                    }
+                }
+
+                // Review input card for buyers
+                item {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    if (activeUser == null) {
+                        Text(
+                            "Please sign in to write and share feedback for this item.",
+                            fontSize = 11.sp,
+                            color = Color.Gray,
+                            fontStyle = FontStyle.Italic,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                    } else {
+                        var pendingRating by remember { mutableIntStateOf(5) }
+                        var commentTextInput by remember { mutableStateOf("") }
+
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color.White),
+                            border = BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.5f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    "Share Product Experience",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = DarkText
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Clearance Rating: ", fontSize = 12.sp, color = Color.Gray)
+                                    repeat(5) { starIdx ->
+                                        Icon(
+                                            Icons.Filled.Star,
+                                            contentDescription = "Select rating stars",
+                                            tint = if (starIdx < pendingRating) TemuYellowAccent else Color.LightGray,
+                                            modifier = Modifier
+                                                .size(24.dp)
+                                                .clickable { pendingRating = starIdx + 1 }
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                OutlinedTextField(
+                                    value = commentTextInput,
+                                    onValueChange = { commentTextInput = it },
+                                    placeholder = { Text("Quality, sizes, delivery time...", fontSize = 11.sp) },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(64.dp),
+                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = TemuOrangePrimary,
+                                        unfocusedBorderColor = Color.LightGray
+                                    )
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Button(
+                                    onClick = {
+                                        viewModel.submitProductReview(product.id, pendingRating, commentTextInput)
+                                        commentTextInput = ""
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = TemuOrangePrimary),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.align(Alignment.End)
+                                ) {
+                                    Text("Post Feedback", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
                         }
                     }
                 }
@@ -1873,295 +2292,205 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
     val activeUser by viewModel.activeUser.collectAsStateWithLifecycle()
     val isConnected by viewModel.isConnectedToBackend.collectAsStateWithLifecycle()
     val backendUrl by viewModel.backendUrl.collectAsStateWithLifecycle()
+    val profile by viewModel.activeUserProfile.collectAsStateWithLifecycle()
+    val isDarkTheme by viewModel.isDarkMode.collectAsStateWithLifecycle()
 
+    var isRegisterMode by remember { mutableStateOf(false) }
     var urlInput by remember { mutableStateOf(backendUrl) }
     var emailInput by remember { mutableStateOf("") }
     var passwordInput by remember { mutableStateOf("") }
     var nameInput by remember { mutableStateOf("") }
-    var selectedRole by remember { mutableStateOf("user") } // user or admin
-
-    val scope = rememberCoroutineScope()
+    
+    // Changing Profile attributes
+    var newPasswordInput by remember { mutableStateOf("") }
+    var newPhoneInput by remember { mutableStateOf("") }
+    var depositAmountInput by remember { mutableStateOf("") }
+    
+    var showDeveloperAccordion by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
+            .background(RetailBackground)
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = TemuOrangePrimary.copy(alpha = 0.08f)),
-            shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(2.dp, TemuOrangePrimary)
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+        if (activeUser == null) {
+            // --- CLEAN, PREMIUM BRANDED AUTHENTICATION CARD ---
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
-                Text(
-                    "TEMU REAL-TIME HUB",
-                    fontWeight = FontWeight.Black,
-                    fontSize = 18.sp,
-                    color = TemuOrangePrimary
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    "Control catalog, prices, and chat sessions dynamically from the cloud",
-                    fontSize = 11.sp,
-                    color = Color.Gray,
-                    textAlign = TextAlign.Center
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Connection Settings Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(
-                        "Sync Status: ",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
-                    )
-                    Spacer(modifier = Modifier.weight(1f))
+                    // Logo Header
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(32.dp))
-                            .background(if (isConnected) Color(0xFFE8F5E9) else Color(0xFFECEFF1))
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .size(60.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(TemuOrangePrimary),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(if (isConnected) Color(0xFF4CAF50) else Color(0xFFFF9800))
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                if (isConnected) "LIVE CHANNEL SYNCED" else "OFFLINE LOCAL DATABASE",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Black,
-                                color = if (isConnected) Color(0xFF2E7D32) else Color(0xFF37474F)
-                            )
-                        }
+                        Icon(
+                            Icons.Filled.AccountCircle,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(36.dp)
+                        )
                     }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                OutlinedTextField(
-                    value = urlInput,
-                    onValueChange = { urlInput = it },
-                    label = { Text("Express Server Endpoint Url") },
-                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    Button(
-                        onClick = { viewModel.updateBackendUrl(urlInput) },
-                        colors = ButtonDefaults.buttonColors(containerColor = TemuOrangePrimary),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Filled.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Connect", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    OutlinedButton(
-                        onClick = {
-                            urlInput = "http://10.0.2.2:3000"
-                            viewModel.updateBackendUrl("http://10.0.2.2:3000")
-                        },
-                        modifier = Modifier.wrapContentWidth()
-                    ) {
-                        Text("Android Emulator Loopback", fontSize = 10.sp)
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Authentication Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp)
-            ) {
-                if (activeUser == null) {
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
                     Text(
-                        "Sign In or Register Account",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = Color.Black
+                        if (isRegisterMode) "Create Temu Buyer Account" else "Sign In to Temu",
+                        fontWeight = FontWeight.Black,
+                        fontSize = 20.sp,
+                        color = DarkText
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        "Authenticate to unlock consumer chat channels and administrator inventories",
-                        fontSize = 10.sp,
-                        color = Color.Gray
+                        if (isRegisterMode) "Unlock up to 90% discount on cart items" else "Manage order checkouts, coupons & secure wallet balance",
+                        fontSize = 11.sp,
+                        color = Color.Gray,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    if (isRegisterMode) {
+                        OutlinedTextField(
+                            value = nameInput,
+                            onValueChange = { nameInput = it },
+                            label = { Text("Full Name") },
+                            modifier = Modifier.fillMaxWidth().testTag("reg_name_input"),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = TemuOrangePrimary,
+                                unfocusedBorderColor = Color.LightGray
+                            )
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
 
                     OutlinedTextField(
                         value = emailInput,
                         onValueChange = { emailInput = it },
                         label = { Text("Email Address") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().testTag("auth_email_input"),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = TemuOrangePrimary,
+                            unfocusedBorderColor = Color.LightGray
+                        )
                     )
-
-                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     OutlinedTextField(
                         value = passwordInput,
                         onValueChange = { passwordInput = it },
                         label = { Text("Password credentials") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().testTag("auth_password_input"),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = TemuOrangePrimary,
+                            unfocusedBorderColor = Color.LightGray
+                        )
                     )
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
 
-                    OutlinedTextField(
-                        value = nameInput,
-                        onValueChange = { nameInput = it },
-                        label = { Text("Full Name (Optional for sign up)") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Text("Primary Account Role Profile:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
+                    Button(
+                        onClick = {
+                            if (isRegisterMode) {
+                                val role = if (emailInput.lowercase().contains("admin") || emailInput.lowercase().endsWith("@admin.com")) "admin" else "user"
+                                viewModel.registerRemote(emailInput, passwordInput, nameInput.ifEmpty { "Default Buyer" }, role)
+                            } else {
+                                viewModel.loginRemote(emailInput, passwordInput)
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = TemuOrangePrimary),
+                        shape = RoundedCornerShape(24.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("auth_submit_btn")
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.clickable { selectedRole = "user" }
-                        ) {
-                            RadioButton(
-                                selected = selectedRole == "user",
-                                onClick = { selectedRole = "user" },
-                                colors = RadioButtonDefaults.colors(selectedColor = TemuOrangePrimary)
-                            )
-                            Text("Customer / Buyer", fontSize = 12.sp)
-                        }
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.clickable { selectedRole = "admin" }
-                        ) {
-                            RadioButton(
-                                selected = selectedRole == "admin",
-                                onClick = { selectedRole = "admin" },
-                                colors = RadioButtonDefaults.colors(selectedColor = TemuOrangePrimary)
-                            )
-                            Text("Administrator / Merchant", fontSize = 12.sp)
-                        }
+                        Text(
+                            if (isRegisterMode) "Register & Claim Wallet Bonuses" else "Sign In Securely",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Black
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Demo autofills
-                    Text("Develoment Quick Autofill:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                    TextButton(onClick = { isRegisterMode = !isRegisterMode }) {
+                        Text(
+                            if (isRegisterMode) "Already have an account? Sign In" else "Don't have an account? Click here to register",
+                            fontSize = 12.sp,
+                            color = TemuOrangePrimary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        } else {
+            // --- GORGEOUS INTEGRATED PROFILE DASHBOARD FOR AUTHENTICATED USER ---
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    // Profile avatar block
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        OutlinedButton(
-                            onClick = {
-                                emailInput = "user@temu.com"
-                                passwordInput = "user123"
-                                selectedRole = "user"
-                                viewModel.loginRemote(emailInput, passwordInput)
-                            },
-                            modifier = Modifier.weight(1f)
+                        Box(
+                            modifier = Modifier
+                                .size(54.dp)
+                                .clip(CircleShape)
+                                .background(TemuOrangePrimary.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Text("Jack Buyer (Client)", fontSize = 10.sp)
+                            Text(
+                                activeUser!!.name.take(1).uppercase(),
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Black,
+                                color = TemuOrangePrimary
+                            )
                         }
-                        OutlinedButton(
-                            onClick = {
-                                emailInput = "admin@temu.com"
-                                passwordInput = "admin123"
-                                selectedRole = "admin"
-                                viewModel.loginRemote(emailInput, passwordInput)
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Admin Mode (Merchant)", fontSize = 10.sp)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = { viewModel.loginRemote(emailInput, passwordInput) },
-                            colors = ButtonDefaults.buttonColors(containerColor = TemuOrangePrimary),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Log In", fontWeight = FontWeight.Bold)
-                        }
-                        OutlinedButton(
-                            onClick = { viewModel.registerRemote(emailInput, passwordInput, nameInput.ifEmpty { "New Account" }, selectedRole) },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Register", fontWeight = FontWeight.Bold)
-                        }
-                    }
-                } else {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
+                        Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                "Authenticated Account Profile:",
-                                fontSize = 11.sp,
-                                color = Color.Gray,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
                                 activeUser!!.name,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = DarkText
                             )
                             Text(
                                 activeUser!!.email,
                                 fontSize = 12.sp,
-                                color = Color.DarkGray
+                                color = Color.Gray
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(TemuOrangePrimary.copy(alpha = 0.15f))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    .clip(RoundedCornerShape(32.dp))
+                                    .background(TemuOrangePrimary.copy(alpha = 0.12f))
+                                    .padding(horizontal = 8.dp, vertical = 2.dp)
                             ) {
                                 Text(
-                                    activeUser!!.role.uppercase(),
-                                    fontSize = 10.sp,
+                                    "ROLE: " + activeUser!!.role.uppercase(),
+                                    fontSize = 9.sp,
                                     fontWeight = FontWeight.Black,
                                     color = TemuOrangePrimary
                                 )
@@ -2170,9 +2499,336 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                         Spacer(modifier = Modifier.weight(1f))
                         IconButton(
                             onClick = { viewModel.logout() },
-                            modifier = Modifier.background(Color.Red.copy(alpha = 0.1f), CircleShape)
+                            modifier = Modifier.background(Color.Red.copy(alpha = 0.08f), CircleShape)
                         ) {
                             Icon(Icons.Filled.Logout, contentDescription = "Log Out", tint = Color.Red)
+                        }
+                    }
+
+                    Divider(modifier = Modifier.padding(vertical = 16.dp))
+
+                    // --- REAL-TIME WALLET & BALANCE CARD INTEGRATION ---
+                    Text(
+                        "Temu Secure Checkout Wallet",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = DarkText
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = TemuOrangePrimary.copy(alpha = 0.05f)),
+                        border = BorderStroke(1.dp, TemuOrangePrimary.copy(alpha = 0.15f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text("Current Wallet Balance", fontSize = 11.sp, color = Color.Gray)
+                                    Text(
+                                        String.format("$%.2f", profile?.walletBalance ?: 120.00),
+                                        fontSize = 24.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = TemuOrangePrimary
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(PositiveGreen.copy(alpha = 0.1f))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text("90% Clearance Protected", fontSize = 9.sp, color = PositiveGreen, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            // Top up UI block
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedTextField(
+                                    value = depositAmountInput,
+                                    onValueChange = { depositAmountInput = it },
+                                    placeholder = { Text("Deposit Amount", fontSize = 12.sp) },
+                                    modifier = Modifier.weight(1f).height(48.dp),
+                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
+                                    singleLine = true,
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = PositiveGreen,
+                                        unfocusedBorderColor = Color.LightGray
+                                    )
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Button(
+                                    onClick = {
+                                        val amt = depositAmountInput.toDoubleOrNull() ?: 50.0
+                                        viewModel.depositToWallet(amt)
+                                        depositAmountInput = ""
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = PositiveGreen),
+                                    modifier = Modifier.height(48.dp),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Icon(Icons.Filled.AccountBalanceWallet, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Add Credits", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // --- ACTIVE PROMO/COUPONS PORTAL ---
+                    Text(
+                        "Active Coupons & Promotions",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = DarkText
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(TemuOrangePrimary.copy(alpha = 0.08f))
+                                .padding(10.dp)
+                        ) {
+                            Column {
+                                Text("WELCOM50", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TemuOrangePrimary)
+                                Text("20% Off Flat Discount", fontSize = 9.sp, color = Color.Gray)
+                            }
+                        }
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(TemuOrangePrimary.copy(alpha = 0.08f))
+                                .padding(10.dp)
+                        ) {
+                            Column {
+                                Text("TEMUFLASHSALE40", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TemuOrangePrimary)
+                                Text("40% Clearance Promo", fontSize = 9.sp, color = Color.Gray)
+                            }
+                        }
+                    }
+
+                    Divider(modifier = Modifier.padding(vertical = 16.dp))
+
+                    // --- MANAGE PASSWORD & MOBILE PROFILE ---
+                    Text(
+                        "Update Personal Credentials",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = DarkText
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    OutlinedTextField(
+                        value = newPasswordInput,
+                        onValueChange = { newPasswordInput = it },
+                        label = { Text("Change Password") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = TemuOrangePrimary,
+                            unfocusedBorderColor = Color.LightGray
+                        )
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Button(
+                        onClick = {
+                            if (newPasswordInput.isNotEmpty()) {
+                                viewModel.changePassword(newPasswordInput)
+                                newPasswordInput = ""
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = TemuOrangePrimary),
+                        modifier = Modifier.align(Alignment.End).height(36.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 2.dp)
+                    ) {
+                        Text("Save Password", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = newPhoneInput,
+                        onValueChange = { newPhoneInput = it },
+                        placeholder = { Text(profile?.phoneNumber ?: "+1-555-019-2831") },
+                        label = { Text("Change Phone Number") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = TemuOrangePrimary,
+                            unfocusedBorderColor = Color.LightGray
+                        )
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Button(
+                        onClick = {
+                            if (newPhoneInput.isNotEmpty()) {
+                                viewModel.changePhoneNumber(newPhoneInput)
+                                newPhoneInput = ""
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = TemuOrangePrimary),
+                        modifier = Modifier.align(Alignment.End).height(36.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 2.dp)
+                    ) {
+                        Text("Save Phone", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // --- GLOBAL COLOR MODE PREFERENCE CARD ---
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = if (isDarkTheme) Icons.Filled.DarkMode else Icons.Filled.LightMode,
+                            contentDescription = null,
+                            tint = TemuOrangePrimary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text("Application Theme Settings", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = DarkText)
+                            Text("Toggle between light and dark backgrounds", fontSize = 10.sp, color = Color.Gray)
+                        }
+                    }
+                    Switch(
+                        checked = isDarkTheme,
+                        onCheckedChange = { viewModel.toggleDarkMode() },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = TemuOrangePrimary,
+                            uncheckedThumbColor = Color.Gray,
+                            uncheckedTrackColor = Color.LightGray
+                        )
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // --- COLLAPSIBLE DEVELOPMENT / SYNC ACCORDION SHEET (No visual clutter!) ---
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showDeveloperAccordion = !showDeveloperAccordion },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Dns, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "Developer & Connection Settings",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.Gray
+                        )
+                    }
+                    Icon(
+                        if (showDeveloperAccordion) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                        contentDescription = "Expand collapsible parameters",
+                        tint = Color.Gray
+                    )
+                }
+
+                if (showDeveloperAccordion) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            "Sync Connection Status: ",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(32.dp))
+                                .background(if (isConnected) Color(0xFFE8F5E9) else Color(0xFFECEFF1))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                if (isConnected) "LIVE CHANNEL SYNCED" else "OFFLINE LOCAL DATABASE",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isConnected) Color(0xFF2E7D32) else Color(0xFF37474F)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = urlInput,
+                        onValueChange = { urlInput = it },
+                        label = { Text("Express Server Endpoint Url") },
+                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { viewModel.updateBackendUrl(urlInput) },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Gray),
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Save Endpoint", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                        
+                        OutlinedButton(
+                            onClick = {
+                                urlInput = "http://10.0.2.2:3000"
+                                viewModel.updateBackendUrl("http://10.0.2.2:3000")
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Android Localhost", fontSize = 11.sp)
                         }
                     }
                 }

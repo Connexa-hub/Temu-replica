@@ -69,3 +69,34 @@ interface ChatDao {
     suspend fun clearAllMessages()
 }
 
+@Dao
+interface ReviewDao {
+    @Query("SELECT * FROM product_reviews WHERE productId = :productId ORDER BY timestamp DESC")
+    fun getReviewsForProduct(productId: Long): Flow<List<ReviewEntity>>
+
+    @Query("SELECT * FROM product_reviews ORDER BY timestamp DESC")
+    fun getAllReviews(): Flow<List<ReviewEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertReview(review: ReviewEntity)
+}
+
+@Dao
+interface AppConfigDao {
+    @Query("SELECT * FROM app_configs WHERE id = 'globals' LIMIT 1")
+    fun getAppConfig(): Flow<AppConfigEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveAppConfig(config: AppConfigEntity)
+}
+
+@Dao
+interface UserProfileDao {
+    @Query("SELECT * FROM user_profiles WHERE email = :email LIMIT 1")
+    fun getUserProfile(email: String): Flow<UserProfileEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveUserProfile(profile: UserProfileEntity)
+}
+
+
