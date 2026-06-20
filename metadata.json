@@ -1,0 +1,6 @@
+{
+  "name": "Temu Shop",
+  "description": "Temu-style e-commerce storefront with clearance flash deals, real-time local cart checkout, and custom order history tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
