@@ -97,7 +97,10 @@ const appConfigSchema = new mongoose.Schema({
   flashSalesEnds: { type: Number, default: Date.now() + 86400000 },
   flashSalesDiscount: { type: Number, default: 90 },
   carouselEditableContent: { type: String, default: 'Flash Clearance Sale;Summer Electronics Deals;Global Clearance Event;Shop Like a Billionaire' },
-  algorithmicPromotionEnabled: { type: Boolean, default: true }
+  algorithmicPromotionEnabled: { type: Boolean, default: true },
+  customBrandName: { type: String, default: 'Temu' },
+  customBrandColorHex: { type: String, default: '#FFFF5000' },
+  customLauncherName: { type: String, default: 'Temu Shop' }
 });
 
 const chatMessageSchema = new mongoose.Schema({
@@ -147,7 +150,10 @@ let localDb = {
     flashSalesEnds: Date.now() + 86400000,
     flashSalesDiscount: 90,
     carouselEditableContent: "Flash Clearance Sale;Summer Electronics Deals;Global Clearance Event;Shop Like a Billionaire",
-    algorithmicPromotionEnabled: true
+    algorithmicPromotionEnabled: true,
+    customBrandName: "Temu",
+    customBrandColorHex: "#FFFF5000",
+    customLauncherName: "Temu Shop"
   }
 };
 
@@ -231,6 +237,272 @@ async function saveNewUser(userData) {
     return newUser;
   }
 }
+
+// ---------------------------------------------------------------------
+// TRANSIENT STORAGE & SENDGRID EMAIL DELIVERY INTEGRATION
+// ---------------------------------------------------------------------
+const pendingRegistrations = new Map();
+const pendingResets = new Map();
+const https = require('https');
+
+function sendEmail({ to, subject, htmlContent }) {
+  const apiKey = process.env.SENDGRID_API_KEY;
+  const sender = process.env.SENDGRID_SENDER_EMAIL || "no-reply@temushop.com";
+
+  // Always log to node console for easy logs inspection
+  console.log(`=======================================================`);
+  console.log(`[EMAIL MANAGER] Dispatched mail to: ${to}`);
+  console.log(`[SUBJECT]: ${subject}`);
+  console.log(`[BODY]:\n${htmlContent}`);
+  console.log(`=======================================================`);
+
+  if (!apiKey) {
+    console.log("[EMAIL MANAGER] No SENDGRID_API_KEY detected. Dispatched directly to server log terminal for local testing.");
+    return Promise.resolve(true);
+  }
+
+  const postData = JSON.stringify({
+    personalizations: [{ to: [{ email: to }] }],
+    from: { email: sender, name: "Secure Shop Support" },
+    subject: subject,
+    content: [{ type: "text/html", value: htmlContent }]
+  });
+
+  return new Promise((resolve) => {
+    const req = https.request({
+      hostname: 'api.sendgrid.com',
+      path: '/v3/mail/send',
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData)
+      }
+    }, (res) => {
+      let responseBody = '';
+      res.on('data', (chunk) => responseBody += chunk);
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          console.log(`[EMAIL MANAGER] SendGrid successfully sent email to ${to}`);
+          resolve(true);
+        } else {
+          console.error(`[EMAIL MANAGER] SendGrid failed (${res.statusCode}): ${responseBody}`);
+          resolve(false);
+        }
+      });
+    });
+
+    req.on('error', (err) => {
+      console.error(`[EMAIL MANAGER] Network error during SendGrid post:`, err);
+      resolve(false);
+    });
+
+    req.write(postData);
+    req.end();
+  });
+}
+
+// ---------------------------------------------------------------------
+// NEW PASSWORD RESET & OTP REGISTER ENDPOINTS
+// ---------------------------------------------------------------------
+
+app.post('/api/auth/register-otp', async (req, res) => {
+  const { email, password, name, role, adminToken } = req.body;
+
+  if (!email || !password || !name) {
+    return res.status(400).json({ error: 'Please enter all registration fields.' });
+  }
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ error: 'Please provide a valid email format.' });
+  }
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
+  }
+
+  try {
+    const exists = await findUserByEmail(email);
+    if (exists) {
+      return res.status(400).json({ error: 'Email account is already registered.' });
+    }
+
+    // Role Escalation Protection: Require Token if role is admin or if email contains admin keyword/domain
+    let finalRole = role || 'user';
+    const isTryingToBeAdmin = finalRole === 'admin' || email.toLowerCase().includes('admin') || email.toLowerCase().endsWith('.admin.com');
+    
+    if (isTryingToBeAdmin) {
+      if (!adminToken || adminToken !== ADMIN_SIGNUP_TOKEN) {
+        return res.status(403).json({ 
+          error: 'Forbidden: Valid Merchant/Admin Setup Key (adminToken) is required to register with administrator authorization.' 
+        });
+      }
+      finalRole = 'admin';
+    } else {
+      finalRole = 'user';
+    }
+
+    // Generate random 6 Digit OTP code
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiry = Date.now() + 15 * 60 * 1000; // 15 mins
+
+    // Store in transient map
+    pendingRegistrations.set(email.toLowerCase().trim(), {
+      email,
+      password,
+      name,
+      role: finalRole,
+      otp,
+      expiresAt: expiry
+    });
+
+    // Send email via SendGrid
+    const emailHeader = `<h2>Welcome to our Secure Store!</h2>`;
+    const emailBody = `<p>Hi ${name},</p><p>Thank you for registering. To confirm your account and activate your profile, please enter this 6-digit verification code:</p><h3>${otp}</h3><p>This OTP will expire in 15 minutes.</p>`;
+    await sendEmail({
+      to: email,
+      subject: "Activate Your Secure Buyer Account - OTP Code",
+      htmlContent: emailHeader + emailBody
+    });
+
+    res.json({ success: true, message: "A 6-digit verification code has been dispatched to your email address." });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to initiate OTP code generation.' });
+  }
+});
+
+app.post('/api/auth/verify-otp', async (req, res) => {
+  const { email, otp } = req.body;
+  if (!email || !otp) {
+    return res.status(400).json({ error: 'Email and OTP verification code are required.' });
+  }
+
+  const key = email.toLowerCase().trim();
+  const pending = pendingRegistrations.get(key);
+
+  if (!pending) {
+    return res.status(404).json({ error: 'No active registration found for this email address. Please register again.' });
+  }
+
+  if (pending.otp !== otp.trim()) {
+    return res.status(400).json({ error: 'Invalid verification OTP code. Please try again.' });
+  }
+
+  if (Date.now() > pending.expiresAt) {
+    pendingRegistrations.delete(key);
+    return res.status(410).json({ error: 'Verification OTP code has expired. Please register again to generate a new code.' });
+  }
+
+  try {
+    const newUser = await saveNewUser({
+      email: pending.email,
+      password: pending.password,
+      name: pending.name,
+      role: pending.role,
+      phoneNumber: '+1-555-019-2831',
+      walletBalance: 120.00,
+      couponCount: 3
+    });
+
+    pendingRegistrations.delete(key);
+
+    res.status(201).json({
+      email: newUser.email,
+      name: newUser.name,
+      role: newUser.role,
+      token: `JWT_SECURE_TOKEN_FOR_${newUser.role.toUpperCase()}`
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Registration failed during database write. Please try again.' });
+  }
+});
+
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: 'Please enter registered email address.' });
+  }
+
+  try {
+    const user = await findUserByEmail(email);
+    if (!user) {
+      // Security best practice: Do not leak whether the user email exists or not to prevent user harvesting.
+      return res.json({ success: true, message: "If this account is registered, a password reset token has been dispatched." });
+    }
+
+    // Generate numeric 6-digit reset token
+    const token = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiry = Date.now() + 15 * 60 * 1000; // 15 mins
+
+    pendingResets.set(email.toLowerCase().trim(), {
+      token,
+      expiresAt: expiry
+    });
+
+    const emailHeader = `<h2>Security Service: Password Reset</h2>`;
+    const emailBody = `<p>Hi ${user.name || 'User'},</p><p>We received a password reset request for your account. Please confirm your identity using this 6-digit security token:</p><h2 style='color:#FF5000'>${token}</h2><p>If you did not make this request, please change your credentials immediately or contact support. This token will expire in 15 minutes.</p>`;
+    
+    await sendEmail({
+      to: email,
+      subject: "Security Service: Reset Your Password Token",
+      htmlContent: emailHeader + emailBody
+    });
+
+    res.json({ success: true, message: "If this account is registered, a password reset token has been dispatched." });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to process password reset request.' });
+  }
+});
+
+app.post('/api/auth/reset-password', async (req, res) => {
+  const { email, token, newPassword } = req.body;
+  if (!email || !token || !newPassword) {
+    return res.status(400).json({ error: 'All fields (Email, Token, New Password) are required.' });
+  }
+
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: 'New password must be at least 6 characters long.' });
+  }
+
+  const key = email.toLowerCase().trim();
+  const resetData = pendingResets.get(key);
+
+  if (!resetData) {
+    return res.status(400).json({ error: 'No pending reset request found. Request a new token.' });
+  }
+
+  if (resetData.token !== token.trim()) {
+    return res.status(400).json({ error: 'Invalid security verification token.' });
+  }
+
+  if (Date.now() > resetData.expiresAt) {
+    pendingResets.delete(key);
+    return res.status(410).json({ error: 'Password reset token has expired. Request a new token.' });
+  }
+
+  try {
+    if (isMongoConnected) {
+      const user = await User.findOne({ email: key });
+      if (!user) return res.status(404).json({ error: 'User does not exist.' });
+      
+      user.password = newPassword;
+      await user.save();
+    } else {
+      const user = localDb.users.find(u => u.email.toLowerCase() === key);
+      if (!user) return res.status(404).json({ error: 'User does not exist.' });
+      
+      user.password = newPassword;
+      saveLocalDatabase();
+    }
+
+    pendingResets.delete(key);
+    res.json({ success: true, message: "Your credentials have been successfully updated. You may now login." });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update credentials. Please try again.' });
+  }
+});
 
 async function getAllProducts() {
   if (isMongoConnected) {
@@ -940,7 +1212,7 @@ app.get('/api/appconfig', async (req, res) => {
 });
 
 app.post('/api/appconfig', async (req, res) => {
-  const { sliderImages, promoText, adText, flashSalesDiscount, carouselEditableContent, algorithmicPromotionEnabled } = req.body;
+  const { sliderImages, promoText, adText, flashSalesDiscount, carouselEditableContent, algorithmicPromotionEnabled, customBrandName, customBrandColorHex, customLauncherName } = req.body;
 
   try {
     if (isMongoConnected) {
@@ -955,6 +1227,9 @@ app.post('/api/appconfig', async (req, res) => {
       if (flashSalesDiscount !== undefined) config.flashSalesDiscount = Number(flashSalesDiscount);
       if (carouselEditableContent !== undefined) config.carouselEditableContent = carouselEditableContent;
       if (algorithmicPromotionEnabled !== undefined) config.algorithmicPromotionEnabled = Boolean(algorithmicPromotionEnabled);
+      if (customBrandName !== undefined) config.customBrandName = customBrandName;
+      if (customBrandColorHex !== undefined) config.customBrandColorHex = customBrandColorHex;
+      if (customLauncherName !== undefined) config.customLauncherName = customLauncherName;
 
       await config.save();
       res.json(config);
@@ -966,7 +1241,10 @@ app.post('/api/appconfig', async (req, res) => {
         adText: adText !== undefined ? adText : localDb.appConfig.adText,
         flashSalesDiscount: flashSalesDiscount !== undefined ? Number(flashSalesDiscount) : localDb.appConfig.flashSalesDiscount,
         carouselEditableContent: carouselEditableContent !== undefined ? carouselEditableContent : localDb.appConfig.carouselEditableContent,
-        algorithmicPromotionEnabled: algorithmicPromotionEnabled !== undefined ? Boolean(algorithmicPromotionEnabled) : localDb.appConfig.algorithmicPromotionEnabled
+        algorithmicPromotionEnabled: algorithmicPromotionEnabled !== undefined ? Boolean(algorithmicPromotionEnabled) : localDb.appConfig.algorithmicPromotionEnabled,
+        customBrandName: customBrandName !== undefined ? customBrandName : localDb.appConfig.customBrandName,
+        customBrandColorHex: customBrandColorHex !== undefined ? customBrandColorHex : localDb.appConfig.customBrandColorHex,
+        customLauncherName: customLauncherName !== undefined ? customLauncherName : localDb.appConfig.customLauncherName
       };
       saveLocalDatabase();
       res.json(localDb.appConfig);

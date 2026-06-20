@@ -2307,7 +2307,14 @@ fun getStoreBannerResourceId(context: Context): Int {
     return 0
 }
 
-@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+fun parseHexColor(hexStr: String): Color {
+    return try {
+        Color(android.graphics.Color.parseColor(hexStr))
+    } catch (e: Exception) {
+        Color(0xFFFF5000) // Fallback default orange color
+    }
+}
+
 @Composable
 fun AuthSettingsScreen(viewModel: ShopViewModel) {
     val activeUser by viewModel.activeUser.collectAsStateWithLifecycle()
@@ -2316,12 +2323,30 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
     val profile by viewModel.activeUserProfile.collectAsStateWithLifecycle()
     val isDarkTheme by viewModel.isDarkMode.collectAsStateWithLifecycle()
 
-    var isRegisterMode by remember { mutableStateOf(false) }
+    val brandName by viewModel.currentBrandName.collectAsStateWithLifecycle()
+    val brandColorHex by viewModel.currentBrandColorHex.collectAsStateWithLifecycle()
+    val launcherName by viewModel.currentLauncherName.collectAsStateWithLifecycle()
+
+    val brandPrimaryColor = parseHexColor(brandColorHex)
+
+    val dynamicBackground = if (isDarkTheme) Color(0xFF121214) else RetailBackground
+    val dynamicCardContainer = if (isDarkTheme) Color(0xFF1E1E22) else Color.White
+    val dynamicOnBackgroundText = if (isDarkTheme) Color.White else DarkText
+    val dynamicSecondaryText = if (isDarkTheme) Color(0xFFB0B3BC) else Color.Gray
+    val dynamicBorder = if (isDarkTheme) Color(0xFF2C2D31) else Color.LightGray
+
+    // Auth screen states: "LOGIN", "REGISTER", "VERIFY_OTP", "FORGOT_PASSWORD", "RESET_PASSWORD"
+    var authState by remember { mutableStateOf("LOGIN") }
+
     var urlInput by remember { mutableStateOf(backendUrl) }
     var emailInput by remember { mutableStateOf("") }
     var passwordInput by remember { mutableStateOf("") }
     var nameInput by remember { mutableStateOf("") }
-    
+    var otpInput by remember { mutableStateOf("") }
+    var resetTokenInput by remember { mutableStateOf("") }
+    var newPasswordForResetInput by remember { mutableStateOf("") }
+    var adminSignUpTokenInput by remember { mutableStateOf("") }
+
     // Changing Profile attributes
     var newPasswordInput by remember { mutableStateOf("") }
     var newPhoneInput by remember { mutableStateOf("") }
@@ -2331,21 +2356,25 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
     
     var showDeveloperAccordion by remember { mutableStateOf(false) }
 
+    // Dynamic customization states edited by admin
+    var brandNameInput by remember(brandName) { mutableStateOf(brandName) }
+    var brandColorHexInput by remember(brandColorHex) { mutableStateOf(brandColorHex) }
+    var launcherNameInput by remember(launcherName) { mutableStateOf(launcherName) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .background(RetailBackground)
+            .background(dynamicBackground)
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         if (activeUser == null) {
             // --- CLEAN, PREMIUM BRANDED AUTHENTICATION CARD ---
             Card(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().shadow(4.dp, RoundedCornerShape(20.dp)),
                 shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                colors = CardDefaults.cardColors(containerColor = dynamicCardContainer)
             ) {
                 Column(
                     modifier = Modifier.padding(24.dp),
@@ -2356,7 +2385,7 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                         modifier = Modifier
                             .size(60.dp)
                             .clip(RoundedCornerShape(14.dp))
-                            .background(TemuOrangePrimary),
+                            .background(brandPrimaryColor),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -2368,134 +2397,438 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                     }
                     
                     Spacer(modifier = Modifier.height(16.dp))
+
+                    val headerText = when (authState) {
+                        "LOGIN" -> "Sign In to $brandName"
+                        "REGISTER" -> "Create $brandName Account"
+                        "VERIFY_OTP" -> "Verify OTP Confirmation"
+                        "FORGOT_PASSWORD" -> "Forgot Secret Password"
+                        "RESET_PASSWORD" -> "Reset Credentials"
+                        else -> "Sign In"
+                    }
+
+                    val subheaderText = when (authState) {
+                        "LOGIN" -> "Manage order checkouts, coupons & secure wallet balance"
+                        "REGISTER" -> "Unlock up to 90% discount on cart items"
+                        "VERIFY_OTP" -> "We have sent a 6-digit confirmation code to your email"
+                        "FORGOT_PASSWORD" -> "Request a secure code to reset your account credentials safely"
+                        "RESET_PASSWORD" -> "Enter your security token to configure a new password credentials"
+                        else -> ""
+                    }
                     
                     Text(
-                        if (isRegisterMode) "Create Temu Buyer Account" else "Sign In to Temu",
+                        headerText,
                         fontWeight = FontWeight.Black,
                         fontSize = 20.sp,
-                        color = DarkText
+                        color = dynamicOnBackgroundText
                     )
                     Text(
-                        if (isRegisterMode) "Unlock up to 90% discount on cart items" else "Manage order checkouts, coupons & secure wallet balance",
+                        subheaderText,
                         fontSize = 11.sp,
-                        color = Color.Gray,
+                        color = dynamicSecondaryText,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                     )
 
                     Spacer(modifier = Modifier.height(20.dp))
 
-                    var adminSignUpTokenInput by remember { mutableStateOf("") }
-
-                    if (isRegisterMode) {
-                        OutlinedTextField(
-                            value = nameInput,
-                            onValueChange = { nameInput = it },
-                            label = { Text("Full Name") },
-                            modifier = Modifier.fillMaxWidth().testTag("reg_name_input"),
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = TemuOrangePrimary,
-                                unfocusedBorderColor = Color.LightGray
+                    when (authState) {
+                        "LOGIN" -> {
+                            // OAuth providers for premium login
+                            Text(
+                                "CHOOSE OAUTH INBOUND PROVIDERS:",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = dynamicSecondaryText,
+                                modifier = Modifier.align(Alignment.Start)
                             )
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        emailInput = "google.oauth@gmail.com"
+                                        passwordInput = "oauth123"
+                                        viewModel.loginRemote("google.oauth@gmail.com", "oauth123")
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = dynamicBackground),
+                                    modifier = Modifier.weight(1f).height(40.dp).border(1.dp, dynamicBorder, RoundedCornerShape(8.dp)),
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Icon(Icons.Filled.AccountBox, contentDescription = null, tint = brandPrimaryColor, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Google Auth", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = dynamicOnBackgroundText)
+                                }
+                                Button(
+                                    onClick = {
+                                        emailInput = "apple.oauth@icloud.com"
+                                        passwordInput = "oauth123"
+                                        viewModel.loginRemote("apple.oauth@icloud.com", "oauth123")
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = dynamicBackground),
+                                    modifier = Modifier.weight(1f).height(40.dp).border(1.dp, dynamicBorder, RoundedCornerShape(8.dp)),
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Icon(Icons.Filled.Stars, contentDescription = null, tint = dynamicOnBackgroundText, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Apple OAuth", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = dynamicOnBackgroundText)
+                                }
+                            }
 
-                        // Admin master credential gateway
-                        val isEmailAdmin = emailInput.lowercase().contains("admin") || emailInput.lowercase().endsWith("@admin.com")
-                        if (isEmailAdmin) {
+                            Spacer(modifier = Modifier.height(16.dp))
+
                             OutlinedTextField(
-                                value = adminSignUpTokenInput,
-                                onValueChange = { adminSignUpTokenInput = it },
-                                label = { Text("Admin Master Security Token") },
-                                placeholder = { Text("Enter token required for administrator privileges") },
-                                modifier = Modifier.fillMaxWidth().testTag("reg_admin_token_input"),
+                                value = emailInput,
+                                onValueChange = { emailInput = it },
+                                label = { Text("Email Address") },
+                                modifier = Modifier.fillMaxWidth().testTag("auth_email_input"),
                                 singleLine = true,
                                 colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = TemuOrangePrimary,
-                                    unfocusedBorderColor = Color.LightGray
+                                    focusedBorderColor = brandPrimaryColor,
+                                    unfocusedBorderColor = dynamicBorder,
+                                    focusedLabelColor = brandPrimaryColor,
+                                    unfocusedLabelColor = dynamicSecondaryText,
+                                    focusedTextColor = dynamicOnBackgroundText,
+                                    unfocusedTextColor = dynamicOnBackgroundText
                                 )
                             )
                             Spacer(modifier = Modifier.height(10.dp))
-                        }
-                    }
-
-                    OutlinedTextField(
-                        value = emailInput,
-                        onValueChange = { emailInput = it },
-                        label = { Text("Email Address") },
-                        modifier = Modifier.fillMaxWidth().testTag("auth_email_input"),
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = TemuOrangePrimary,
-                            unfocusedBorderColor = Color.LightGray
-                        )
-                    )
-                    
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    OutlinedTextField(
-                        value = passwordInput,
-                        onValueChange = { passwordInput = it },
-                        label = { Text("Password credentials") },
-                        modifier = Modifier.fillMaxWidth().testTag("auth_password_input"),
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = TemuOrangePrimary,
-                            unfocusedBorderColor = Color.LightGray
-                        )
-                    )
-
-                    Spacer(modifier = Modifier.height(20.dp))
-
-                    Button(
-                        onClick = {
-                            if (isRegisterMode) {
-                                val role = if (emailInput.lowercase().contains("admin") || emailInput.lowercase().endsWith("@admin.com")) "admin" else "user"
-                                viewModel.registerRemote(
-                                    emailStr = emailInput,
-                                    passwordStr = passwordInput,
-                                    nameStr = nameInput.ifEmpty { "Default Buyer" },
-                                    roleStr = role,
-                                    adminToken = if (role == "admin") adminSignUpTokenInput else null
+                            OutlinedTextField(
+                                value = passwordInput,
+                                onValueChange = { passwordInput = it },
+                                label = { Text("Password credentials") },
+                                modifier = Modifier.fillMaxWidth().testTag("auth_password_input"),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = brandPrimaryColor,
+                                    unfocusedBorderColor = dynamicBorder,
+                                    focusedLabelColor = brandPrimaryColor,
+                                    unfocusedLabelColor = dynamicSecondaryText,
+                                    focusedTextColor = dynamicOnBackgroundText,
+                                    unfocusedTextColor = dynamicOnBackgroundText
                                 )
-                            } else {
-                                viewModel.loginRemote(emailInput, passwordInput)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Button(
+                                onClick = {
+                                    viewModel.loginRemote(emailInput, passwordInput)
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = brandPrimaryColor),
+                                shape = RoundedCornerShape(24.dp),
+                                modifier = Modifier.fillMaxWidth().height(48.dp).testTag("auth_submit_btn")
+                            ) {
+                                Text("Sign In Securely", fontSize = 14.sp, fontWeight = FontWeight.Black, color = Color.White)
                             }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = TemuOrangePrimary),
-                        shape = RoundedCornerShape(24.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .testTag("auth_submit_btn")
-                    ) {
-                        Text(
-                            if (isRegisterMode) "Register & Claim Wallet Bonuses" else "Sign In Securely",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                    }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                TextButton(onClick = { authState = "FORGOT_PASSWORD" }) {
+                                    Text("Forgot Password?", fontSize = 12.sp, color = brandPrimaryColor, fontWeight = FontWeight.Bold)
+                                }
+                                TextButton(onClick = { authState = "REGISTER" }) {
+                                    Text("Join Register Portal", fontSize = 12.sp, color = brandPrimaryColor, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                        "REGISTER" -> {
+                            // OAuth builders for signup
+                            Text(
+                                "REGISTER USING OAUTH PROVIDERS:",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = dynamicSecondaryText,
+                                modifier = Modifier.align(Alignment.Start)
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        emailInput = "google.oauth@gmail.com"
+                                        nameInput = "OAuth User"
+                                        passwordInput = "oauth123"
+                                        viewModel.loginRemote("google.oauth@gmail.com", "oauth123")
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = dynamicBackground),
+                                    modifier = Modifier.weight(1f).height(40.dp).border(1.dp, dynamicBorder, RoundedCornerShape(8.dp)),
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Icon(Icons.Filled.Group, contentDescription = null, tint = brandPrimaryColor, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Google Sign", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = dynamicOnBackgroundText)
+                                }
+                                Button(
+                                    onClick = {
+                                        emailInput = "apple.oauth@icloud.com"
+                                        nameInput = "OAuth User"
+                                        passwordInput = "oauth123"
+                                        viewModel.loginRemote("apple.oauth@icloud.com", "oauth123")
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = dynamicBackground),
+                                    modifier = Modifier.weight(1f).height(40.dp).border(1.dp, dynamicBorder, RoundedCornerShape(8.dp)),
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Icon(Icons.Filled.Shield, contentDescription = null, tint = dynamicOnBackgroundText, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Apple Join", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = dynamicOnBackgroundText)
+                                }
+                            }
 
-                    TextButton(onClick = { isRegisterMode = !isRegisterMode }) {
-                        Text(
-                            if (isRegisterMode) "Already have an account? Sign In" else "Don't have an account? Click here to register",
-                            fontSize = 12.sp,
-                            color = TemuOrangePrimary,
-                            fontWeight = FontWeight.Bold
-                        )
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            OutlinedTextField(
+                                value = nameInput,
+                                onValueChange = { nameInput = it },
+                                label = { Text("Full Name") },
+                                modifier = Modifier.fillMaxWidth().testTag("reg_name_input"),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = brandPrimaryColor,
+                                    unfocusedBorderColor = dynamicBorder,
+                                    focusedLabelColor = brandPrimaryColor,
+                                    unfocusedLabelColor = dynamicSecondaryText,
+                                    focusedTextColor = dynamicOnBackgroundText,
+                                    unfocusedTextColor = dynamicOnBackgroundText
+                                )
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            OutlinedTextField(
+                                value = emailInput,
+                                onValueChange = { emailInput = it },
+                                label = { Text("Email Address") },
+                                modifier = Modifier.fillMaxWidth().testTag("auth_email_input"),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = brandPrimaryColor,
+                                    unfocusedBorderColor = dynamicBorder,
+                                    focusedLabelColor = brandPrimaryColor,
+                                    unfocusedLabelColor = dynamicSecondaryText,
+                                    focusedTextColor = dynamicOnBackgroundText,
+                                    unfocusedTextColor = dynamicOnBackgroundText
+                                )
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Admin master key
+                            val isEmailAdmin = emailInput.lowercase().contains("admin") || emailInput.lowercase().endsWith("@admin.com")
+                            if (isEmailAdmin) {
+                                OutlinedTextField(
+                                    value = adminSignUpTokenInput,
+                                    onValueChange = { adminSignUpTokenInput = it },
+                                    label = { Text("Admin Master Security Token") },
+                                    placeholder = { Text("Required for role authorization") },
+                                    modifier = Modifier.fillMaxWidth().testTag("reg_admin_token_input"),
+                                    singleLine = true,
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = brandPrimaryColor,
+                                        unfocusedBorderColor = dynamicBorder,
+                                        focusedLabelColor = brandPrimaryColor,
+                                        unfocusedLabelColor = dynamicSecondaryText,
+                                        focusedTextColor = dynamicOnBackgroundText,
+                                        unfocusedTextColor = dynamicOnBackgroundText
+                                    )
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                            }
+
+                            OutlinedTextField(
+                                value = passwordInput,
+                                onValueChange = { passwordInput = it },
+                                label = { Text("Password credentials") },
+                                modifier = Modifier.fillMaxWidth().testTag("auth_password_input"),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = brandPrimaryColor,
+                                    unfocusedBorderColor = dynamicBorder,
+                                    focusedLabelColor = brandPrimaryColor,
+                                    unfocusedLabelColor = dynamicSecondaryText,
+                                    focusedTextColor = dynamicOnBackgroundText,
+                                    unfocusedTextColor = dynamicOnBackgroundText
+                                )
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Button(
+                                onClick = {
+                                    val isMailAdmin = emailInput.lowercase().contains("admin") || emailInput.lowercase().endsWith("@admin.com")
+                                    val determinedRole = if (isMailAdmin) "admin" else "user"
+                                    viewModel.requestRegisterOtp(
+                                        emailStr = emailInput,
+                                        passwordStr = passwordInput,
+                                        nameStr = nameInput.ifEmpty { "Default Buyer" },
+                                        roleStr = determinedRole,
+                                        adminToken = if (determinedRole == "admin") adminSignUpTokenInput else null
+                                    ) { isSuccess, info ->
+                                        if (isSuccess) {
+                                            authState = "VERIFY_OTP"
+                                        }
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = brandPrimaryColor),
+                                shape = RoundedCornerShape(24.dp),
+                                modifier = Modifier.fillMaxWidth().height(48.dp).testTag("auth_submit_btn")
+                            ) {
+                                Text("Send Verification OTP", fontSize = 14.sp, fontWeight = FontWeight.Black, color = Color.White)
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            TextButton(onClick = { authState = "LOGIN" }) {
+                                Text("Already have an account? Sign In", fontSize = 12.sp, color = brandPrimaryColor, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        "VERIFY_OTP" -> {
+                            OutlinedTextField(
+                                value = otpInput,
+                                onValueChange = { otpInput = it },
+                                label = { Text("6-Digit OTP Verification Code") },
+                                placeholder = { Text("Enter OTP from registration email") },
+                                modifier = Modifier.fillMaxWidth().testTag("otp_code_input"),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = brandPrimaryColor,
+                                    unfocusedBorderColor = dynamicBorder,
+                                    focusedLabelColor = brandPrimaryColor,
+                                    unfocusedLabelColor = dynamicSecondaryText,
+                                    focusedTextColor = dynamicOnBackgroundText,
+                                    unfocusedTextColor = dynamicOnBackgroundText
+                                )
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Button(
+                                onClick = {
+                                    viewModel.verifyRegisterOtp(emailInput, otpInput) { success, _ ->
+                                        if (success) {
+                                            authState = "LOGIN"
+                                        }
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = brandPrimaryColor),
+                                shape = RoundedCornerShape(24.dp),
+                                modifier = Modifier.fillMaxWidth().height(48.dp)
+                            ) {
+                                Text("Verify & Activate Profile", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            TextButton(onClick = { authState = "REGISTER" }) {
+                                Text("Back to Registration Details", fontSize = 12.sp, color = brandPrimaryColor)
+                            }
+                        }
+
+                        "FORGOT_PASSWORD" -> {
+                            OutlinedTextField(
+                                value = emailInput,
+                                onValueChange = { emailInput = it },
+                                label = { Text("Associated Email Address") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = brandPrimaryColor,
+                                    unfocusedBorderColor = dynamicBorder,
+                                    focusedLabelColor = brandPrimaryColor,
+                                    unfocusedLabelColor = dynamicSecondaryText,
+                                    focusedTextColor = dynamicOnBackgroundText,
+                                    unfocusedTextColor = dynamicOnBackgroundText
+                                )
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Button(
+                                onClick = {
+                                    viewModel.requestForgotPassword(emailInput) { success, _ ->
+                                        if (success) {
+                                            authState = "RESET_PASSWORD"
+                                        }
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = brandPrimaryColor),
+                                shape = RoundedCornerShape(24.dp),
+                                modifier = Modifier.fillMaxWidth().height(48.dp)
+                            ) {
+                                Text("Request Reset Token", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            TextButton(onClick = { authState = "LOGIN" }) {
+                                Text("Back to Sign In", fontSize = 12.sp, color = brandPrimaryColor)
+                            }
+                        }
+
+                        "RESET_PASSWORD" -> {
+                            OutlinedTextField(
+                                value = emailInput,
+                                onValueChange = { emailInput = it },
+                                label = { Text("Email Address") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = brandPrimaryColor,
+                                    unfocusedBorderColor = dynamicBorder,
+                                    focusedTextColor = dynamicOnBackgroundText
+                                )
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            OutlinedTextField(
+                                value = resetTokenInput,
+                                onValueChange = { resetTokenInput = it },
+                                label = { Text("6-Digit Reset Security Token") },
+                                placeholder = { Text("Look in SendGrid inbox or terminal logs!") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = brandPrimaryColor,
+                                    unfocusedBorderColor = dynamicBorder,
+                                    focusedTextColor = dynamicOnBackgroundText
+                                )
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            OutlinedTextField(
+                                value = newPasswordForResetInput,
+                                onValueChange = { newPasswordForResetInput = it },
+                                label = { Text("Configure New Password") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = brandPrimaryColor,
+                                    unfocusedBorderColor = dynamicBorder,
+                                    focusedTextColor = dynamicOnBackgroundText
+                                )
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Button(
+                                onClick = {
+                                    viewModel.resetPasswordWithToken(emailInput, resetTokenInput, newPasswordForResetInput) { success, _ ->
+                                        if (success) {
+                                            authState = "LOGIN"
+                                        }
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = brandPrimaryColor),
+                                shape = RoundedCornerShape(24.dp),
+                                modifier = Modifier.fillMaxWidth().height(48.dp)
+                            ) {
+                                Text("Save New Credentials", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            TextButton(onClick = { authState = "LOGIN" }) {
+                                Text("Discard & Back to Sign In", fontSize = 12.sp, color = brandPrimaryColor)
+                            }
+                        }
                     }
                 }
             }
         } else {
             // --- GORGEOUS INTEGRATED PROFILE DASHBOARD FOR AUTHENTICATED USER ---
+            val role = activeUser?.role ?: "user"
+            val isUserAdmin = role == "admin"
+
             Card(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().shadow(4.dp, RoundedCornerShape(20.dp)),
                 shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                colors = CardDefaults.cardColors(containerColor = dynamicCardContainer)
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     // Profile avatar block
@@ -2507,14 +2840,14 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                             modifier = Modifier
                                 .size(54.dp)
                                 .clip(CircleShape)
-                                .background(TemuOrangePrimary.copy(alpha = 0.15f)),
+                                .background(brandPrimaryColor.copy(alpha = 0.15f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 activeUser!!.name.take(1).uppercase(),
                                 fontSize = 24.sp,
                                 fontWeight = FontWeight.Black,
-                                color = TemuOrangePrimary
+                                color = brandPrimaryColor
                             )
                         }
                         Spacer(modifier = Modifier.width(12.dp))
@@ -2523,26 +2856,30 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                                 activeUser!!.name,
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = DarkText
+                                color = dynamicOnBackgroundText
                             )
                             Text(
                                 activeUser!!.email,
                                 fontSize = 12.sp,
-                                color = Color.Gray
+                                color = dynamicSecondaryText
                             )
                             Spacer(modifier = Modifier.height(4.dp))
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(32.dp))
-                                    .background(TemuOrangePrimary.copy(alpha = 0.12f))
-                                    .padding(horizontal = 8.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    "ROLE: " + activeUser!!.role.uppercase(),
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Black,
-                                    color = TemuOrangePrimary
-                                )
+                            
+                            // Only display ROLE: ADMIN badges if the administrator is active
+                            if (isUserAdmin) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(32.dp))
+                                        .background(brandPrimaryColor.copy(alpha = 0.12f))
+                                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        "ROLE: ADMIN",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = brandPrimaryColor
+                                    )
+                                }
                             }
                         }
                         Spacer(modifier = Modifier.weight(1f))
@@ -2554,19 +2891,19 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                         }
                     }
 
-                    Divider(modifier = Modifier.padding(vertical = 16.dp))
+                    Divider(modifier = Modifier.padding(vertical = 16.dp), color = dynamicBorder.copy(alpha = 0.5f))
 
                     // --- REAL-TIME WALLET & BALANCE CARD INTEGRATION ---
                     Text(
-                        "Temu Secure Checkout Wallet",
+                        "$brandName Secure Checkout Wallet",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        color = DarkText
+                        color = dynamicOnBackgroundText
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = TemuOrangePrimary.copy(alpha = 0.05f)),
-                        border = BorderStroke(1.dp, TemuOrangePrimary.copy(alpha = 0.15f)),
+                        colors = CardDefaults.cardColors(containerColor = brandPrimaryColor.copy(alpha = 0.05f)),
+                        border = BorderStroke(1.dp, brandPrimaryColor.copy(alpha = 0.15f)),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
@@ -2576,12 +2913,12 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column {
-                                    Text("Current Wallet Balance", fontSize = 11.sp, color = Color.Gray)
+                                    Text("Current Wallet Balance", fontSize = 11.sp, color = dynamicSecondaryText)
                                     Text(
                                         String.format("$%.2f", profile?.walletBalance ?: 120.00),
                                         fontSize = 24.sp,
                                         fontWeight = FontWeight.Black,
-                                        color = TemuOrangePrimary
+                                        color = brandPrimaryColor
                                     )
                                 }
                                 Box(
@@ -2596,7 +2933,7 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                             
                             Spacer(modifier = Modifier.height(12.dp))
                             
-                            // Top up UI block
+                            // Top up UI block with validation
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically
@@ -2604,13 +2941,15 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                                 OutlinedTextField(
                                     value = depositAmountInput,
                                     onValueChange = { depositAmountInput = it },
-                                    placeholder = { Text("Deposit Amount", fontSize = 12.sp) },
+                                    placeholder = { Text("Deposit Amount", fontSize = 12.sp, color = dynamicSecondaryText) },
                                     modifier = Modifier.weight(1f).height(48.dp),
-                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
+                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, color = dynamicOnBackgroundText),
                                     singleLine = true,
                                     colors = OutlinedTextFieldDefaults.colors(
                                         focusedBorderColor = PositiveGreen,
-                                        unfocusedBorderColor = Color.LightGray
+                                        unfocusedBorderColor = dynamicBorder,
+                                        focusedTextColor = dynamicOnBackgroundText,
+                                        unfocusedTextColor = dynamicOnBackgroundText
                                     )
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -2640,7 +2979,7 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                         "Active Coupons & Promotions",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        color = DarkText
+                        color = dynamicOnBackgroundText
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Row(
@@ -2651,48 +2990,50 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                             modifier = Modifier
                                 .weight(1f)
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(TemuOrangePrimary.copy(alpha = 0.08f))
+                                .background(brandPrimaryColor.copy(alpha = 0.08f))
                                 .padding(10.dp)
                         ) {
                             Column {
-                                Text("WELCOM50", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TemuOrangePrimary)
-                                Text("20% Off Flat Discount", fontSize = 9.sp, color = Color.Gray)
+                                Text("WELCOM50", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = brandPrimaryColor)
+                                Text("20% Off Flat Discount", fontSize = 9.sp, color = dynamicSecondaryText)
                             }
                         }
                         Box(
                             modifier = Modifier
                                 .weight(1f)
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(TemuOrangePrimary.copy(alpha = 0.08f))
+                                .background(brandPrimaryColor.copy(alpha = 0.08f))
                                 .padding(10.dp)
                         ) {
                             Column {
-                                Text("TEMUFLASHSALE40", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TemuOrangePrimary)
-                                Text("40% Clearance Promo", fontSize = 9.sp, color = Color.Gray)
+                                Text("${brandName.uppercase()}FLASH40", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = brandPrimaryColor)
+                                Text("40% Clearance Promo", fontSize = 9.sp, color = dynamicSecondaryText)
                             }
                         }
                     }
 
-                    Divider(modifier = Modifier.padding(vertical = 16.dp))
+                    Divider(modifier = Modifier.padding(vertical = 16.dp), color = dynamicBorder.copy(alpha = 0.5f))
 
                     // --- MANAGE PASSWORD & MOBILE PROFILE ---
                     Text(
                         "Update Personal Credentials",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        color = DarkText
+                        color = dynamicOnBackgroundText
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     
                     OutlinedTextField(
                         value = newPasswordInput,
                         onValueChange = { newPasswordInput = it },
-                        label = { Text("Change Password") },
+                        label = { Text("Change Password", color = dynamicSecondaryText) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = TemuOrangePrimary,
-                            unfocusedBorderColor = Color.LightGray
+                            focusedBorderColor = brandPrimaryColor,
+                            unfocusedBorderColor = dynamicBorder,
+                            focusedTextColor = dynamicOnBackgroundText,
+                            unfocusedTextColor = dynamicOnBackgroundText
                         )
                     )
                     Spacer(modifier = Modifier.height(6.dp))
@@ -2703,11 +3044,11 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                                 newPasswordInput = ""
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = TemuOrangePrimary),
+                        colors = ButtonDefaults.buttonColors(containerColor = brandPrimaryColor),
                         modifier = Modifier.align(Alignment.End).height(36.dp),
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 2.dp)
                     ) {
-                        Text("Save Password", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("Save Password", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -2715,13 +3056,15 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                     OutlinedTextField(
                         value = newPhoneInput,
                         onValueChange = { newPhoneInput = it },
-                        placeholder = { Text(profile?.phoneNumber ?: "+1-555-019-2831") },
-                        label = { Text("Change Phone Number") },
+                        placeholder = { Text(profile?.phoneNumber ?: "+1-555-019-2831", color = dynamicSecondaryText) },
+                        label = { Text("Change Phone Number", color = dynamicSecondaryText) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = TemuOrangePrimary,
-                            unfocusedBorderColor = Color.LightGray
+                            focusedBorderColor = brandPrimaryColor,
+                            unfocusedBorderColor = dynamicBorder,
+                            focusedTextColor = dynamicOnBackgroundText,
+                            unfocusedTextColor = dynamicOnBackgroundText
                         )
                     )
                     Spacer(modifier = Modifier.height(6.dp))
@@ -2732,11 +3075,120 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                                 newPhoneInput = ""
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = TemuOrangePrimary),
+                        colors = ButtonDefaults.buttonColors(containerColor = brandPrimaryColor),
                         modifier = Modifier.align(Alignment.End).height(36.dp),
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 2.dp)
                     ) {
-                        Text("Save Phone", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("Save Phone", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+                }
+            }
+
+            // Only display admin configurations if the logged-in administrator is active!
+            if (isUserAdmin) {
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // --- DYNAMIC ADAPTIVE BRAND BUILDER & LAUNCHER SYSTEM CARD ---
+                Card(
+                    modifier = Modifier.fillMaxWidth().shadow(4.dp, RoundedCornerShape(16.dp)),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = dynamicCardContainer)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.ColorLens, contentDescription = null, tint = brandPrimaryColor, modifier = Modifier.size(22.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "Adaptive Branding & Launcher Hub",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = dynamicOnBackgroundText
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Rebrand your merchant storefront environment instantly. Changes reflect immediately across headings, launch titles, and accents.",
+                            fontSize = 11.sp,
+                            color = dynamicSecondaryText
+                        )
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        OutlinedTextField(
+                            value = brandNameInput,
+                            onValueChange = { brandNameInput = it },
+                            label = { Text("Shop Brand Name") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = brandPrimaryColor,
+                                unfocusedBorderColor = dynamicBorder,
+                                focusedTextColor = dynamicOnBackgroundText
+                            )
+                        )
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            OutlinedTextField(
+                                value = brandColorHexInput,
+                                onValueChange = { brandColorHexInput = it },
+                                label = { Text("Brand Accent Color Hex") },
+                                placeholder = { Text("#FFFF5000") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = brandPrimaryColor,
+                                    unfocusedBorderColor = dynamicBorder,
+                                    focusedTextColor = dynamicOnBackgroundText
+                                )
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            // Swatch preview box
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(parseHexColor(brandColorHexInput))
+                                    .border(1.dp, dynamicBorder, RoundedCornerShape(8.dp))
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        OutlinedTextField(
+                            value = launcherNameInput,
+                            onValueChange = { launcherNameInput = it },
+                            label = { Text("App Launcher Title") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = brandPrimaryColor,
+                                unfocusedBorderColor = dynamicBorder,
+                                focusedTextColor = dynamicOnBackgroundText
+                            )
+                        )
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Button(
+                            onClick = {
+                                viewModel.saveCustomBranding(
+                                    brandName = brandNameInput,
+                                    brandColorHex = brandColorHexInput,
+                                    launcherName = launcherNameInput
+                                )
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = brandPrimaryColor),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth().height(42.dp)
+                        ) {
+                            Icon(Icons.Filled.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Apply Store Branding Settings", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
                     }
                 }
             }
@@ -2746,10 +3198,9 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
 
         // --- GLOBAL COLOR MODE PREFERENCE CARD ---
         Card(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().shadow(2.dp, RoundedCornerShape(16.dp)),
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            colors = CardDefaults.cardColors(containerColor = dynamicCardContainer)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(
@@ -2761,13 +3212,13 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                         Icon(
                             imageVector = if (isDarkTheme) Icons.Filled.DarkMode else Icons.Filled.LightMode,
                             contentDescription = null,
-                            tint = TemuOrangePrimary,
+                            tint = brandPrimaryColor,
                             modifier = Modifier.size(24.dp)
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
-                            Text("Application Theme Settings", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = DarkText)
-                            Text("Toggle between light and dark backgrounds", fontSize = 10.sp, color = Color.Gray)
+                            Text("Application Theme Settings", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = dynamicOnBackgroundText)
+                            Text("Toggle between light and dark backgrounds", fontSize = 10.sp, color = dynamicSecondaryText)
                         }
                     }
                     Switch(
@@ -2775,110 +3226,119 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                         onCheckedChange = { viewModel.toggleDarkMode() },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.White,
-                            checkedTrackColor = TemuOrangePrimary,
+                            checkedTrackColor = brandPrimaryColor,
                             uncheckedThumbColor = Color.Gray,
-                            uncheckedTrackColor = Color.LightGray
+                            uncheckedTrackColor = dynamicBorder
                         )
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        // Only show developer sync configs for Admins
+        val role = activeUser?.role ?: "guest"
+        if (role == "admin") {
+            Spacer(modifier = Modifier.height(16.dp))
 
-        // --- COLLAPSIBLE DEVELOPMENT / SYNC ACCORDION SHEET (No visual clutter!) ---
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-        ) {
-            Column(modifier = Modifier.padding(12.dp)) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showDeveloperAccordion = !showDeveloperAccordion },
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Dns, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            "Developer & Connection Settings",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.Gray
-                        )
-                    }
-                    Icon(
-                        if (showDeveloperAccordion) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
-                        contentDescription = "Expand collapsible parameters",
-                        tint = Color.Gray
-                    )
-                }
-
-                if (showDeveloperAccordion) {
-                    Spacer(modifier = Modifier.height(12.dp))
+            // --- COLLAPSIBLE DEVELOPMENT / SYNC ACCORDION SHEET (No visual clutter!) ---
+            Card(
+                modifier = Modifier.fillMaxWidth().shadow(1.dp, RoundedCornerShape(16.dp)),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = dynamicCardContainer)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
                     Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showDeveloperAccordion = !showDeveloperAccordion },
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(
-                            "Sync Connection Status: ",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp
-                        )
-                        Spacer(modifier = Modifier.weight(1f))
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(32.dp))
-                                .background(if (isConnected) Color(0xFFE8F5E9) else Color(0xFFECEFF1))
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Dns, contentDescription = null, tint = dynamicSecondaryText, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                if (isConnected) "LIVE CHANNEL SYNCED" else "OFFLINE LOCAL DATABASE",
-                                fontSize = 9.sp,
+                                "Developer & Connection Settings",
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (isConnected) Color(0xFF2E7D32) else Color(0xFF37474F)
+                                color = dynamicSecondaryText
                             )
                         }
+                        Icon(
+                            if (showDeveloperAccordion) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                            contentDescription = "Expand collapsible parameters",
+                            tint = dynamicSecondaryText
+                        )
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    OutlinedTextField(
-                        value = urlInput,
-                        onValueChange = { urlInput = it },
-                        label = { Text("Express Server Endpoint Url") },
-                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = { viewModel.updateBackendUrl(urlInput) },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.Gray),
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp)
+                    if (showDeveloperAccordion) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Save Endpoint", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                "Sync Connection Status: ",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                color = dynamicOnBackgroundText
+                            )
+                            Spacer(modifier = Modifier.weight(1f))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(32.dp))
+                                    .background(if (isConnected) Color(0xFFE8F5E9) else Color(0xFFECEFF1))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    if (isConnected) "LIVE CHANNEL SYNCED" else "OFFLINE LOCAL DATABASE",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isConnected) Color(0xFF2E7D32) else Color(0xFF37474F)
+                                )
+                            }
                         }
-                        
-                        OutlinedButton(
-                            onClick = {
-                                urlInput = "http://10.0.2.2:3000"
-                                viewModel.updateBackendUrl("http://10.0.2.2:3000")
-                            },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp)
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        OutlinedTextField(
+                            value = urlInput,
+                            onValueChange = { urlInput = it },
+                            label = { Text("Express Server Endpoint Url") },
+                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, color = dynamicOnBackgroundText),
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = dynamicOnBackgroundText,
+                                unfocusedTextColor = dynamicOnBackgroundText
+                            )
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text("Android Localhost", fontSize = 11.sp)
+                            Button(
+                                onClick = { viewModel.updateBackendUrl(urlInput) },
+                                colors = ButtonDefaults.buttonColors(containerColor = brandPrimaryColor),
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("Save Endpoint", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                            
+                            OutlinedButton(
+                                onClick = {
+                                    urlInput = "http://10.0.2.2:3000"
+                                    viewModel.updateBackendUrl("http://10.0.2.2:3000")
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = brandPrimaryColor)
+                            ) {
+                                Text("Android Localhost", fontSize = 11.sp)
+                            }
                         }
                     }
                 }

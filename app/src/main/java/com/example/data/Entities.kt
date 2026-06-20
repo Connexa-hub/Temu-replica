@@ -74,7 +74,10 @@ data class AppConfigEntity(
     val flashSalesEnds: Long, // timestamp
     val flashSalesDiscount: Int, // e.g. 50%
     val carouselEditableContent: String, // dynamic semicolon-separated title list
-    val algorithmicPromotionEnabled: Boolean = true
+    val algorithmicPromotionEnabled: Boolean = true,
+    val customBrandName: String = "Temu",
+    val customBrandColorHex: String = "#FFFF5000",
+    val customLauncherName: String = "Temu Shop"
 )
 
 @Entity(tableName = "user_profiles")

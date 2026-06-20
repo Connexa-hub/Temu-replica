@@ -144,6 +144,34 @@ data class UpdateProfileResponse(
     val phoneNumber: String
 )
 
+data class GenericMsgResponse(
+    val success: Boolean,
+    val message: String
+)
+
+data class RegisterOtpRequest(
+    val email: String,
+    val password: String,
+    val name: String,
+    val role: String,
+    val adminToken: String?
+)
+
+data class VerifyOtpRequest(
+    val email: String,
+    val otp: String
+)
+
+data class ForgotPasswordRequest(
+    val email: String
+)
+
+data class ResetPasswordRequest(
+    val email: String,
+    val token: String,
+    val newPassword: String
+)
+
 data class ChatMessageRequest(
     val text: String,
     val sender: String, // "user" or "admin"
@@ -229,6 +257,18 @@ interface ShopApiService {
 
     @POST("api/appconfig")
     suspend fun updateAppConfig(@Body request: AppConfigEntity): AppConfigEntity
+
+    @POST("api/auth/register-otp")
+    suspend fun registerOtp(@Body request: RegisterOtpRequest): GenericMsgResponse
+
+    @POST("api/auth/verify-otp")
+    suspend fun verifyOtp(@Body request: VerifyOtpRequest): LoginResponse
+
+    @POST("api/auth/forgot-password")
+    suspend fun forgotPassword(@Body request: ForgotPasswordRequest): GenericMsgResponse
+
+    @POST("api/auth/reset-password")
+    suspend fun resetPassword(@Body request: ResetPasswordRequest): GenericMsgResponse
 }
 
 // --- Dynamic Retrofit Factory ---

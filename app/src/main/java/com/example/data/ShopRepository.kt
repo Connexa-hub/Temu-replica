@@ -267,7 +267,10 @@ class ShopRepository(private val db: AppDatabase) {
             flashSalesEnds = System.currentTimeMillis() + 86400000L, // 24 hours from seed
             flashSalesDiscount = 40,
             carouselEditableContent = "🌴 Summer Clearance Extravaganza;🚚 Lightning Express Delivery Guaranteed;💳 100% Refund Protect Cover",
-            algorithmicPromotionEnabled = true
+            algorithmicPromotionEnabled = true,
+            customBrandName = "Temu",
+            customBrandColorHex = "#FFFF5000",
+            customLauncherName = "Temu Shop"
         )
         appConfigDao.saveAppConfig(defaultAppConfig)
 
