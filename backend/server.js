@@ -1236,10 +1236,10 @@ app.get('/api/chat/:userId', async (req, res) => {
   try {
     if (isMongoConnected) {
       const msgs = await ChatMessage.find({ userId }).sort({ timestamp: 1 });
-      res.json(msgs);
+      res.json(msgs.map(m => ({ ...m.toObject(), msgId: m._id })));
     } else {
       const msgs = localDb.chatMessages.filter(m => m.userId === userId);
-      res.json(msgs);
+      res.json(msgs.map(m => ({ ...m, msgId: m.timestamp }))); // Use timestamp as temp id for local
     }
   } catch (err) {
     res.status(500).json({ error: 'Failed to load user chat log.' });
@@ -1279,7 +1279,7 @@ app.post('/api/chat/:userId/message', async (req, res) => {
           await ChatMessage.create(botResponse);
         }, 1200);
       }
-      res.status(201).json(created);
+      res.status(201).json({ ...created.toObject(), msgId: created._id });
     } else {
       localDb.chatMessages.push(newMsg);
       saveLocalDatabase();
@@ -1297,7 +1297,7 @@ app.post('/api/chat/:userId/message', async (req, res) => {
           saveLocalDatabase();
         }, 1200);
       }
-      res.status(201).json(newMsg);
+      res.status(201).json({ ...newMsg, msgId: Date.now() });
     }
   } catch (err) {
     res.status(500).json({ error: 'Failed to deliver support message.' });
@@ -1322,7 +1322,7 @@ app.get('/api/appconfig', async (req, res) => {
 });
 
 app.post('/api/appconfig', async (req, res) => {
-  const { sliderImages, promoText, adText, flashSalesDiscount, carouselEditableContent, algorithmicPromotionEnabled, customBrandName, customBrandColorHex, customLauncherName, referralBonusAmount, storeCategories } = req.body;
+  const { sliderImages, promoText, adText, flashSalesDiscount, flashSalesEnds, carouselEditableContent, algorithmicPromotionEnabled, customBrandName, customBrandColorHex, customLauncherName, referralBonusAmount, storeCategories } = req.body;
 
   try {
     if (isMongoConnected) {
@@ -1335,6 +1335,7 @@ app.post('/api/appconfig', async (req, res) => {
       if (promoText !== undefined) config.promoText = promoText;
       if (adText !== undefined) config.adText = adText;
       if (flashSalesDiscount !== undefined) config.flashSalesDiscount = Number(flashSalesDiscount);
+      if (flashSalesEnds !== undefined) config.flashSalesEnds = Number(flashSalesEnds);
       if (carouselEditableContent !== undefined) config.carouselEditableContent = carouselEditableContent;
       if (algorithmicPromotionEnabled !== undefined) config.algorithmicPromotionEnabled = Boolean(algorithmicPromotionEnabled);
       if (customBrandName !== undefined) config.customBrandName = customBrandName;
@@ -1352,6 +1353,7 @@ app.post('/api/appconfig', async (req, res) => {
         promoText: promoText !== undefined ? promoText : localDb.appConfig.promoText,
         adText: adText !== undefined ? adText : localDb.appConfig.adText,
         flashSalesDiscount: flashSalesDiscount !== undefined ? Number(flashSalesDiscount) : localDb.appConfig.flashSalesDiscount,
+        flashSalesEnds: flashSalesEnds !== undefined ? Number(flashSalesEnds) : localDb.appConfig.flashSalesEnds,
         carouselEditableContent: carouselEditableContent !== undefined ? carouselEditableContent : localDb.appConfig.carouselEditableContent,
         algorithmicPromotionEnabled: algorithmicPromotionEnabled !== undefined ? Boolean(algorithmicPromotionEnabled) : localDb.appConfig.algorithmicPromotionEnabled,
         customBrandName: customBrandName !== undefined ? customBrandName : localDb.appConfig.customBrandName,
