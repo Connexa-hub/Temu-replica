@@ -56,7 +56,13 @@ const userSchema = new mongoose.Schema({
   role: { type: String, default: 'user' },
   phoneNumber: { type: String, default: '+1-555-019-2831' },
   walletBalance: { type: Number, default: 120.00 },
-  couponCount: { type: Number, default: 3 }
+  couponCount: { type: Number, default: 3 },
+  referralCode: { type: String, unique: true },
+  referredBy: { type: String, default: null },
+  referralBonusEarned: { type: Number, default: 0 },
+  purchaseCount: { type: Number, default: 0 },
+  totalSpent: { type: Number, default: 0 },
+  suspicious: { type: Boolean, default: false }
 });
 
 const productSchema = new mongoose.Schema({
@@ -100,7 +106,8 @@ const appConfigSchema = new mongoose.Schema({
   algorithmicPromotionEnabled: { type: Boolean, default: true },
   customBrandName: { type: String, default: 'Temu' },
   customBrandColorHex: { type: String, default: '#FFFF5000' },
-  customLauncherName: { type: String, default: 'Temu Shop' }
+  customLauncherName: { type: String, default: 'Temu Shop' },
+  referralBonusAmount: { type: Number, default: 20 }
 });
 
 const chatMessageSchema = new mongoose.Schema({
@@ -153,7 +160,9 @@ let localDb = {
     algorithmicPromotionEnabled: true,
     customBrandName: "Temu",
     customBrandColorHex: "#FFFF5000",
-    customLauncherName: "Temu Shop"
+    customLauncherName: "Temu Shop",
+    referralBonusAmount: 20,
+    storeCategories: "All,Fashion,Electronics,Home & Living,Beauty & Health,Toys & Games"
   }
 };
 
@@ -228,14 +237,23 @@ async function findUserByEmail(email) {
 
 async function saveNewUser(userData) {
   const normEmail = userData.email.toLowerCase().trim();
+  const referralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+  const mergedData = { ...userData, email: normEmail, referralCode };
+  let createdUser;
   if (isMongoConnected) {
-    return await User.create({ ...userData, email: normEmail });
+    createdUser = await User.create(mergedData);
   } else {
-    const newUser = { ...userData, email: normEmail, phoneNumber: '+1-555-019-2831', walletBalance: 120.00, couponCount: 3 };
-    localDb.users.push(newUser);
+    createdUser = { ...mergedData, phoneNumber: '+1-555-019-2831', walletBalance: 120.00, couponCount: 3, purchaseCount: 0, totalSpent: 0, referralBonusEarned: 0, suspicious: false };
+    localDb.users.push(createdUser);
     saveLocalDatabase();
-    return newUser;
   }
+  
+  sendEmail({
+    to: createdUser.email,
+    subject: 'Welcome to the Platform!',
+    htmlContent: `Hello ${createdUser.name},<br><br>We are thrilled to welcome you! Your account has been setup.<br>Your Referral Code is: <b>${createdUser.referralCode}</b><br>Enjoy shopping!<br><br>Best Regards,<br>Admin`
+  });
+  return createdUser;
 }
 
 // ---------------------------------------------------------------------
@@ -307,7 +325,7 @@ function sendEmail({ to, subject, htmlContent }) {
 // ---------------------------------------------------------------------
 
 app.post('/api/auth/register-otp', async (req, res) => {
-  const { email, password, name, role, adminToken } = req.body;
+  const { email, password, name, role, adminToken, referredBy } = req.body;
 
   if (!email || !password || !name) {
     return res.status(400).json({ error: 'Please enter all registration fields.' });
@@ -352,6 +370,7 @@ app.post('/api/auth/register-otp', async (req, res) => {
       password,
       name,
       role: finalRole,
+      referredBy: referredBy || null,
       otp,
       expiresAt: expiry
     });
@@ -400,6 +419,7 @@ app.post('/api/auth/verify-otp', async (req, res) => {
       password: pending.password,
       name: pending.name,
       role: pending.role,
+      referredBy: pending.referredBy,
       phoneNumber: '+1-555-019-2831',
       walletBalance: 120.00,
       couponCount: 3
@@ -528,12 +548,22 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid profile email or security password.' });
     }
 
+    if (user.suspicious) {
+      return res.status(403).json({ error: 'Account marked suspicious. Please log in again or contact admin.' });
+    }
+
     res.json({
       email: user.email,
       name: user.name,
       role: user.role,
       phoneNumber: user.phoneNumber || '+1-555-019-2831',
       walletBalance: user.walletBalance || 120.00,
+      couponCount: user.couponCount || 0,
+      purchaseCount: user.purchaseCount || 0,
+      totalSpent: user.totalSpent || 0,
+      referralCode: user.referralCode || '',
+      referralBonusEarned: user.referralBonusEarned || 0,
+      suspicious: user.suspicious || false,
       token: `JWT_SECURE_TOKEN_FOR_${user.role.toUpperCase()}_${user._id || Date.now()}`
     });
   } catch (err) {
@@ -542,7 +572,7 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 app.post('/api/auth/register', async (req, res) => {
-  const { email, password, name, role, adminToken } = req.body;
+  const { email, password, name, role, adminToken, referredBy } = req.body;
 
   if (!email || !password || !name) {
     return res.status(400).json({ error: 'Please enter all registration fields.' });
@@ -583,6 +613,7 @@ app.post('/api/auth/register', async (req, res) => {
       password,
       name,
       role: finalRole,
+      referredBy: referredBy || null,
       phoneNumber: '+1-555-019-2831',
       walletBalance: 120.00,
       couponCount: 3
@@ -646,7 +677,13 @@ app.get('/api/user/profile', async (req, res) => {
       name: user.name,
       role: user.role,
       phoneNumber: user.phoneNumber || '+1-555-019-2831',
-      walletBalance: user.walletBalance || 120.00
+      walletBalance: user.walletBalance || 120.00,
+      couponCount: user.couponCount || 0,
+      purchaseCount: user.purchaseCount || 0,
+      totalSpent: user.totalSpent || 0,
+      referralCode: user.referralCode || '',
+      referralBonusEarned: user.referralBonusEarned || 0,
+      suspicious: user.suspicious || false
     });
   } catch (err) {
     res.status(500).json({ error: 'Failed to load profile parameters.' });
@@ -896,6 +933,45 @@ app.post('/api/orders', async (req, res) => {
         status: 'Processed'
       });
 
+      if (payWithWallet && userEmail) {
+        const buyer = await findUserByEmail(userEmail);
+        buyer.purchaseCount = (buyer.purchaseCount || 0) + 1;
+        buyer.totalSpent = (buyer.totalSpent || 0) + finalAmount;
+
+        // Referral Verification algorithm
+        if (buyer.purchaseCount === 1 && buyer.referredBy) {
+           const referrer = await User.findOne({ referralCode: buyer.referredBy });
+           const appConf = await AppConfig.findOne({ id: 'globals' });
+           if (referrer && appConf) {
+             referrer.walletBalance += appConf.referralBonusAmount;
+             referrer.referralBonusEarned = (referrer.referralBonusEarned || 0) + appConf.referralBonusAmount;
+             await referrer.save();
+           }
+        }
+        await User.updateOne({ email: buyer.email.toLowerCase() }, { 
+          purchaseCount: buyer.purchaseCount, 
+          totalSpent: buyer.totalSpent 
+        });
+        
+        let itemListHtml = savedOrderItems.map(i => `<li>${i.quantity}x ${i.productName} - $${(i.price * i.quantity).toFixed(2)}</li>`).join('');
+        sendEmail({
+            to: buyer.email,
+            subject: 'Your Order Receipt & Confirmation',
+            htmlContent: `<h2>Thank you for your purchase!</h2>
+                          <p>Order #${nextOrderId} has been processed successfully.</p>
+                          <ul>${itemListHtml}</ul>
+                          <p><strong>Total Amount Paid: $${finalAmount.toFixed(2)}</strong></p>`
+        });
+        
+        sendEmail({
+            to: buyer.email,
+            subject: `Tracking Upgrade: Order #${nextOrderId}`,
+            htmlContent: `<h2>Tracking Ready</h2>
+                          <p>Your tracking number has been generated. You can now monitor the package live through the Android mobile app.</p>
+                          <p>Thank you for choosing our platform.</p>`
+        });
+      }
+
       res.status(201).json({
         success: true,
         order: newOrder,
@@ -930,6 +1006,40 @@ app.post('/api/orders', async (req, res) => {
         email: userEmail || 'guest@temu.com',
         status: 'Processed'
       };
+
+      if (payWithWallet && userEmail) {
+        const buyer = localDb.users.find(u => u.email.toLowerCase() === userEmail.toLowerCase());
+        if (buyer) {
+          buyer.purchaseCount = (buyer.purchaseCount || 0) + 1;
+          buyer.totalSpent = (buyer.totalSpent || 0) + finalAmount;
+
+          if (buyer.purchaseCount === 1 && buyer.referredBy) {
+             const referrer = localDb.users.find(u => u.referralCode === buyer.referredBy);
+             if (referrer) {
+               referrer.walletBalance += localDb.appConfig.referralBonusAmount;
+               referrer.referralBonusEarned = (referrer.referralBonusEarned || 0) + localDb.appConfig.referralBonusAmount;
+             }
+          }
+
+          let itemListHtml = savedOrderItems.map(i => `<li>${i.quantity}x ${i.productName} - $${(i.price * i.quantity).toFixed(2)}</li>`).join('');
+          sendEmail({
+              to: buyer.email,
+              subject: 'Your Order Receipt & Confirmation',
+              htmlContent: `<h2>Thank you for your purchase!</h2>
+                            <p>Order #${nextOrderId} has been processed successfully.</p>
+                            <ul>${itemListHtml}</ul>
+                            <p><strong>Total Amount Paid: $${finalAmount.toFixed(2)}</strong></p>`
+          });
+          
+          sendEmail({
+              to: buyer.email,
+              subject: `Tracking Upgrade: Order #${nextOrderId}`,
+              htmlContent: `<h2>Tracking Ready</h2>
+                            <p>Your tracking number has been generated. You can now monitor the package live through the Android mobile app.</p>
+                            <p>Thank you for choosing our platform.</p>`
+          });
+        }
+      }
 
       localDb.orders.push(newOrder);
       localDb.orderItems.push(...savedOrderItems);
@@ -1212,7 +1322,7 @@ app.get('/api/appconfig', async (req, res) => {
 });
 
 app.post('/api/appconfig', async (req, res) => {
-  const { sliderImages, promoText, adText, flashSalesDiscount, carouselEditableContent, algorithmicPromotionEnabled, customBrandName, customBrandColorHex, customLauncherName } = req.body;
+  const { sliderImages, promoText, adText, flashSalesDiscount, carouselEditableContent, algorithmicPromotionEnabled, customBrandName, customBrandColorHex, customLauncherName, referralBonusAmount, storeCategories } = req.body;
 
   try {
     if (isMongoConnected) {
@@ -1230,6 +1340,8 @@ app.post('/api/appconfig', async (req, res) => {
       if (customBrandName !== undefined) config.customBrandName = customBrandName;
       if (customBrandColorHex !== undefined) config.customBrandColorHex = customBrandColorHex;
       if (customLauncherName !== undefined) config.customLauncherName = customLauncherName;
+      if (referralBonusAmount !== undefined) config.referralBonusAmount = Number(referralBonusAmount);
+      if (storeCategories !== undefined) config.storeCategories = storeCategories;
 
       await config.save();
       res.json(config);
@@ -1244,7 +1356,9 @@ app.post('/api/appconfig', async (req, res) => {
         algorithmicPromotionEnabled: algorithmicPromotionEnabled !== undefined ? Boolean(algorithmicPromotionEnabled) : localDb.appConfig.algorithmicPromotionEnabled,
         customBrandName: customBrandName !== undefined ? customBrandName : localDb.appConfig.customBrandName,
         customBrandColorHex: customBrandColorHex !== undefined ? customBrandColorHex : localDb.appConfig.customBrandColorHex,
-        customLauncherName: customLauncherName !== undefined ? customLauncherName : localDb.appConfig.customLauncherName
+        customLauncherName: customLauncherName !== undefined ? customLauncherName : localDb.appConfig.customLauncherName,
+        referralBonusAmount: referralBonusAmount !== undefined ? Number(referralBonusAmount) : localDb.appConfig.referralBonusAmount,
+        storeCategories: storeCategories !== undefined ? storeCategories : localDb.appConfig.storeCategories
       };
       saveLocalDatabase();
       res.json(localDb.appConfig);

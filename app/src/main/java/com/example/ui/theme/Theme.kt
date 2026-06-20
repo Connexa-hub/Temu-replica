@@ -15,10 +15,12 @@ private val DarkColorScheme =
     primary = TemuOrangePrimary,
     secondary = TemuYellowAccent,
     tertiary = PositiveGreen,
-    background = DarkText,
-    surface = DarkText,
+    background = androidx.compose.ui.graphics.Color(0xFF121212),
+    surface = androidx.compose.ui.graphics.Color(0xFF1E1E1E),
     onPrimary = androidx.compose.ui.graphics.Color.White,
-    onSecondary = DarkText
+    onSecondary = androidx.compose.ui.graphics.Color.White,
+    onBackground = androidx.compose.ui.graphics.Color.White,
+    onSurface = androidx.compose.ui.graphics.Color.White
   )
 
 private val LightColorScheme =

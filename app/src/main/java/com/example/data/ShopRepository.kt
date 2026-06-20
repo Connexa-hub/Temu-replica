@@ -241,6 +241,61 @@ class ShopRepository(private val db: AppDatabase) {
                 imageUrl = "toys_car",
                 stockQuantity = 18,
                 salesCount = 110
+            ),
+            ProductEntity(
+                id = 11,
+                name = "Midnight Mystery Eau de Parfum",
+                description = "A seductive blend of black vanilla, jasmine, and rare oud. Long-lasting fragrance that leaves an unforgettable impression.",
+                category = "Perfumes",
+                price = 89.99,
+                discountPercent = 15,
+                imageUrl = "perfume_midnight",
+                stockQuantity = 25,
+                salesCount = 540
+            ),
+            ProductEntity(
+                id = 12,
+                name = "Galaxy Z Fold 6 Clone Pro Max",
+                description = "Stunning foldable display experience. Advanced multi-tasking capabilities with high performance chipset and 50MP camera.",
+                category = "Phones",
+                price = 299.99,
+                discountPercent = 45,
+                imageUrl = "phone_fold",
+                stockQuantity = 10,
+                salesCount = 1200
+            ),
+            ProductEntity(
+                id = 13,
+                name = "Air Ultra-Light Sports Trainers",
+                description = "Engineered for record-breaking speed. Breathable mesh upper with superior cushioning for maximum energy return.",
+                category = "Shoes",
+                price = 59.99,
+                discountPercent = 30,
+                imageUrl = "shoe_sport",
+                stockQuantity = 50,
+                salesCount = 820
+            ),
+            ProductEntity(
+                id = 14,
+                name = "Diamond Bezel Chronograph Watch",
+                description = "Timeless elegance meets modern precision. Waterproof stainless steel case with luminous hands and sapphire glass.",
+                category = "Accessories",
+                price = 129.99,
+                discountPercent = 25,
+                imageUrl = "watch_diamond",
+                stockQuantity = 5,
+                salesCount = 310
+            ),
+            ProductEntity(
+                id = 15,
+                name = "Vintage Leather Messenger Bag",
+                description = "Handcrafted from full-grain buffalo leather. Multiple compartments for laptop and documents with adjustable shoulder strap.",
+                category = "Clothing",
+                price = 45.99,
+                discountPercent = 20,
+                imageUrl = "bag_leather",
+                stockQuantity = 15,
+                salesCount = 450
             )
         )
 
@@ -258,6 +313,16 @@ class ShopRepository(private val db: AppDatabase) {
         )
         userProfileDao.saveUserProfile(defaultUserProfile)
 
+        val adminProfile = UserProfileEntity(
+            email = "admin@temu.com",
+            name = "Store Admin",
+            phoneNumber = "1-800-ADMIN",
+            passwordHash = "admin123",
+            walletBalance = 0.0,
+            couponCount = 0
+        )
+        userProfileDao.saveUserProfile(adminProfile)
+
         // Seed dynamic frontend app configurations (Carousel, ad banners, algos)
         val defaultAppConfig = AppConfigEntity(
             id = "globals",
@@ -268,6 +333,7 @@ class ShopRepository(private val db: AppDatabase) {
             flashSalesDiscount = 40,
             carouselEditableContent = "🌴 Summer Clearance Extravaganza;🚚 Lightning Express Delivery Guaranteed;💳 100% Refund Protect Cover",
             algorithmicPromotionEnabled = true,
+            storeCategories = "All,Perfumes,Phones,Shoes,Clothing,Accessories,Electronics,Home & Living,Beauty & Health,Toys & Games",
             customBrandName = "Temu",
             customBrandColorHex = "#FFFF5000",
             customLauncherName = "Temu Shop"

@@ -77,7 +77,9 @@ data class AppConfigEntity(
     val algorithmicPromotionEnabled: Boolean = true,
     val customBrandName: String = "Temu",
     val customBrandColorHex: String = "#FFFF5000",
-    val customLauncherName: String = "Temu Shop"
+    val customLauncherName: String = "Temu Shop",
+    val referralBonusAmount: Int = 20,
+    val storeCategories: String = "All,Fashion,Electronics,Home & Living,Beauty & Health,Toys & Games"
 )
 
 @Entity(tableName = "user_profiles")
@@ -88,7 +90,13 @@ data class UserProfileEntity(
     val passwordHash: String,
     val walletBalance: Double = 120.00,
     val couponCount: Int = 3,
-    val promoCodeUsed: String = ""
+    val promoCodeUsed: String = "",
+    val referralCode: String = "",
+    val referredBy: String = "",
+    val referralBonusEarned: Double = 0.0,
+    val purchaseCount: Int = 0,
+    val totalSpent: Double = 0.0,
+    val suspicious: Boolean = false
 )
 
 

@@ -34,17 +34,44 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.util.lerp
+import kotlin.math.absoluteValue
+import androidx.compose.foundation.pager.PagerState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.ProductEntity
 import com.example.data.AppConfigEntity
+import coil.compose.AsyncImage
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import com.example.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ShopAppShell(viewModel: ShopViewModel) {
+    val activeUser by viewModel.activeUser.collectAsStateWithLifecycle()
+    val role = activeUser?.role ?: "guest"
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -54,6 +81,21 @@ fun ShopAppShell(viewModel: ShopViewModel) {
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
     val cartProducts by viewModel.cartWithProducts.collectAsStateWithLifecycle()
     val cartCount by viewModel.cartTotalItems.collectAsStateWithLifecycle()
+
+    // Scroll state for hiding bottom bar
+    val bottomBarHeight = remember { mutableStateOf(0) }
+    val bottomBarOffsetHeightPx = remember { mutableStateOf(0f) }
+    
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                val delta = available.y
+                val newOffset = bottomBarOffsetHeightPx.value + delta
+                bottomBarOffsetHeightPx.value = newOffset.coerceIn(-bottomBarHeight.value.toFloat() * 3, 0f)
+                return Offset.Zero
+            }
+        }
+    }
 
     // Observe checkout notifications/messages
     val checkoutSuccess = viewModel.checkoutSuccess
@@ -81,44 +123,100 @@ fun ShopAppShell(viewModel: ShopViewModel) {
     val selectedProduct by viewModel.selectedProduct.collectAsStateWithLifecycle()
     val productForEdit by viewModel.productForEdit.collectAsStateWithLifecycle()
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        bottomBar = {
-            BottomNavigationBar(
-                viewModel = viewModel,
-                currentScreen = currentScreen,
-                cartCount = cartCount,
-                onScreenSelect = { viewModel.selectScreen(it) }
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.background
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            when (currentScreen) {
-                ShopScreen.STORES -> StorefrontScreen(viewModel)
-                ShopScreen.CART -> CartScreen(viewModel)
-                ShopScreen.ORDERS -> OrdersScreen(viewModel)
-                ShopScreen.CHAT -> ChatSupportScreen(viewModel)
-                ShopScreen.ADMIN_CHATS -> AdminDashboardScreen(viewModel)
-                ShopScreen.AUTH_SETTINGS -> AuthSettingsScreen(viewModel)
-            }
+    val aiResponse by viewModel.aiAssistantResponse.collectAsStateWithLifecycle()
+    val isAILoading by viewModel.isAILoading.collectAsStateWithLifecycle()
+    val showAIDialog by viewModel.showAIDialog.collectAsStateWithLifecycle()
 
-            // Expanded Product Details Sheet
-            selectedProduct?.let { product ->
-                ProductDetailsDialog(
-                    product = product,
-                    viewModel = viewModel,
-                    onDismiss = { viewModel.selectProduct(null) },
-                    onAddToCart = { qty ->
-                        viewModel.addToCart(product, qty)
-                        viewModel.selectProduct(null)
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            modifier = Modifier.nestedScroll(nestedScrollConnection),
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+            containerColor = MaterialTheme.colorScheme.background,
+            bottomBar = {
+                // Return to standard Scaffold bottomBar for reliability
+                val isVisible = bottomBarHeight.value == 0 || bottomBarOffsetHeightPx.value > -bottomBarHeight.value.toFloat() / 1.5f
+                
+                AnimatedVisibility(
+                    visible = isVisible,
+                    enter = slideInVertically(initialOffsetY = { it }),
+                    exit = slideOutVertically(targetOffsetY = { it })
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onSizeChanged { 
+                                if (it.height > 0) bottomBarHeight.value = it.height 
+                            }
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.98f))
+                    ) {
+                        BottomNavigationBar(
+                            viewModel = viewModel,
+                            currentScreen = currentScreen,
+                            cartCount = cartCount,
+                            onScreenSelect = { viewModel.selectScreen(it) }
+                        )
                     }
-                )
+                }
             }
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            ) {
+                // Main content is now full-screen under the nav bar
+                when (currentScreen) {
+                    ShopScreen.STORES -> StorefrontScreen(viewModel)
+                    ShopScreen.CART -> CartScreen(viewModel)
+                    ShopScreen.ORDERS -> OrdersScreen(viewModel)
+                    ShopScreen.CHAT -> ChatSupportScreen(viewModel)
+                    ShopScreen.ADMIN_CHATS, ShopScreen.ADMIN_DASHBOARD -> AdminDashboardScreen(viewModel)
+                    ShopScreen.AUTH_SETTINGS -> AuthSettingsScreen(viewModel)
+                }
+
+                // Modal dialogs
+                selectedProduct?.let { product ->
+                    ProductDetailsDialog(
+                        product = product,
+                        viewModel = viewModel,
+                        onDismiss = { viewModel.selectProduct(null) },
+                        onAddToCart = { qty ->
+                            viewModel.addToCart(product, qty)
+                            viewModel.selectProduct(null)
+                        }
+                    )
+                }
+
+                productForEdit?.let { product ->
+                    AdminProductDialog(
+                        product = product,
+                        viewModel = viewModel,
+                        onDismiss = { viewModel.setProductForEdit(null) }
+                    )
+                }
+            }
+        }
+
+        // Floating AI Assistant Button
+        if (activeUser != null && currentScreen == ShopScreen.STORES) {
+            FloatingActionButton(
+                onClick = { viewModel.setShowAIDialog(true) },
+                containerColor = TemuOrangePrimary,
+                contentColor = Color.White,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(bottom = 90.dp, end = 16.dp)
+                    .testTag("ai_assistant_fab")
+            ) {
+                Icon(Icons.Filled.AutoAwesome, contentDescription = "AI Assistant")
+            }
+        }
+
+        if (showAIDialog) {
+            AIAssistantDialog(
+                viewModel = viewModel,
+                onDismiss = { viewModel.setShowAIDialog(false) }
+            )
         }
     }
 }
@@ -176,18 +274,20 @@ fun BottomNavigationBar(
                 modifier = Modifier.testTag("nav_tab_cart")
             )
 
-            NavigationBarItem(
-                selected = currentScreen == ShopScreen.ORDERS,
-                onClick = { onScreenSelect(ShopScreen.ORDERS) },
-                icon = { Icon(Icons.Filled.ReceiptLong, contentDescription = "Orders") },
-                label = { Text("Orders", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = TemuOrangePrimary,
-                    selectedTextColor = TemuOrangePrimary,
-                    indicatorColor = TemuOrangePrimary.copy(alpha = 0.12f)
-                ),
-                modifier = Modifier.testTag("nav_tab_orders")
-            )
+            if (role != "admin" && activeUser != null) {
+                NavigationBarItem(
+                    selected = currentScreen == ShopScreen.ORDERS,
+                    onClick = { onScreenSelect(ShopScreen.ORDERS) },
+                    icon = { Icon(Icons.Filled.ReceiptLong, contentDescription = "Orders") },
+                    label = { Text("Orders", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = TemuOrangePrimary,
+                        selectedTextColor = TemuOrangePrimary,
+                        indicatorColor = TemuOrangePrimary.copy(alpha = 0.12f)
+                    ),
+                    modifier = Modifier.testTag("nav_tab_orders")
+                )
+            }
         }
 
         // Standard User Support Chat
@@ -209,16 +309,16 @@ fun BottomNavigationBar(
         // Administrator Control Hub
         if (role == "admin") {
             NavigationBarItem(
-                selected = currentScreen == ShopScreen.ADMIN_CHATS,
-                onClick = { onScreenSelect(ShopScreen.ADMIN_CHATS) },
-                icon = { Icon(Icons.Filled.SupportAgent, contentDescription = "Support Hub") },
-                label = { Text("Admin Chats", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
+                selected = currentScreen == ShopScreen.ADMIN_CHATS || currentScreen == ShopScreen.ADMIN_DASHBOARD,
+                onClick = { onScreenSelect(ShopScreen.ADMIN_DASHBOARD) },
+                icon = { Icon(Icons.Filled.VerifiedUser, contentDescription = "Admin Admin") },
+                label = { Text("Admin", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
                 colors = NavigationBarItemDefaults.colors(
                     selectedIconColor = TemuOrangePrimary,
                     selectedTextColor = TemuOrangePrimary,
                     indicatorColor = TemuOrangePrimary.copy(alpha = 0.12f)
                 ),
-                modifier = Modifier.testTag("nav_tab_admin_chats")
+                modifier = Modifier.testTag("nav_tab_admin")
             )
         }
 
@@ -227,7 +327,7 @@ fun BottomNavigationBar(
             selected = currentScreen == ShopScreen.AUTH_SETTINGS,
             onClick = { onScreenSelect(ShopScreen.AUTH_SETTINGS) },
             icon = { Icon(Icons.Filled.Tune, contentDescription = "Account & Sync Settings") },
-            label = { Text("Sync", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
+            label = { Text(if (activeUser == null) "Login" else "Profile", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
             colors = NavigationBarItemDefaults.colors(
                 selectedIconColor = TemuOrangePrimary,
                 selectedTextColor = TemuOrangePrimary,
@@ -242,6 +342,82 @@ fun BottomNavigationBar(
 // 1. STOREFRONT SCREEN
 // ----------------------------------------------------
 @Composable
+fun InlineAdBanner(category: String) {
+    // Brand-aware ads logic
+    val adTitle = when (category.lowercase()) {
+        "fashion", "clothing" -> "👗 Trendy Summer Fashion"
+        "electronics", "phones", "tv" -> "⚡ Next-Gen Electronics Sale"
+        "beauty & health", "perfumes", "perfume" -> "✨ Premium Beauty Collection"
+        "accessories" -> "💍 Elite Accessories Deal"
+        "home & living" -> "🏠 Modern Home Essentials"
+        "toys & games" -> "🎮 Level Up Your Playtime"
+        else -> "🔥 Top Rated Deals For You"
+    }
+    
+    val adSubtitle = when (category.lowercase()) {
+        "fashion" -> "Get up to 50% OFF on Top Brands. Limited time offer!"
+        "electronics", "tv", "phones" -> "The latest gadgets at unbeatable prices. Shop now."
+        "beauty", "perfumes" -> "Find your glow with our curated beauty picks."
+        "accessories" -> "Watch, Jewelry & more with extra 20% discount."
+        else -> "Discover millions of items with free shipping on first order."
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .height(110.dp),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(Color(0xFFFFEEEA), Color(0xFFFFCCBD))
+                    )
+                )
+                .padding(16.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(TemuOrangePrimary, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.AdsClick, contentDescription = null, tint = Color.White)
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Column {
+                    Text(
+                        adTitle,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color(0xFF5D1200)
+                    )
+                    Text(
+                        adSubtitle,
+                        fontSize = 11.sp,
+                        color = Color(0xFF8D4230),
+                        lineHeight = 14.sp
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Sponsored",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFC0634D)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun StorefrontScreen(viewModel: ShopViewModel) {
     val query by viewModel.searchQuery.collectAsStateWithLifecycle()
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
@@ -251,7 +427,11 @@ fun StorefrontScreen(viewModel: ShopViewModel) {
     val context = LocalContext.current
 
     // Category lists
-    val categories = listOf("All", "Fashion", "Electronics", "Home & Living", "Beauty & Health", "Toys & Games")
+    val defaultCategories = listOf("All", "Fashion", "Electronics", "Home & Living", "Beauty & Health", "Toys & Games")
+    val categories = appConfig?.storeCategories?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: defaultCategories
+
+    // Brand Suggestions (Suggestion)
+    val brandSuggestions = listOf("Samsung", "Apple", "Nike", "Adidas", "L'Oreal", "Lego", "Dell", "Sony", "Gucci")
 
     // Dynamic countdown timer for Flash Sales
     var secondsLeft by remember { mutableIntStateOf(10543) }
@@ -267,7 +447,11 @@ fun StorefrontScreen(viewModel: ShopViewModel) {
     val secs = secondsLeft % 60
     val countdownStr = String.format("%02d:%02d:%02d", hours, minutes, secs)
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    val isDarkTheme by viewModel.isDarkMode.collectAsStateWithLifecycle()
+    val dynamicBackground = if (isDarkTheme) Color(0xFF121214) else RetailBackground
+    val dynamicOnBackgroundText = if (isDarkTheme) Color.White else DarkText
+
+    Column(modifier = Modifier.fillMaxSize().background(dynamicBackground)) {
         // Orange top brand header with search
         Column(
             modifier = Modifier
@@ -288,7 +472,7 @@ fun StorefrontScreen(viewModel: ShopViewModel) {
                     Box(
                         modifier = Modifier
                             .size(36.dp)
-                            .background(Color.White, CircleShape),
+                            .background(if (isDarkTheme) Color.Black else Color.White, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -401,6 +585,7 @@ fun StorefrontScreen(viewModel: ShopViewModel) {
                                 var editDiscountStr by remember(appConfig) { mutableStateOf(appConfig?.flashSalesDiscount?.toString() ?: "90") }
                                 var editSliderImages by remember(appConfig) { mutableStateOf(appConfig?.sliderImages ?: "promo_banner") }
                                 var editAlgoEnabled by remember(appConfig) { mutableStateOf(appConfig?.algorithmicPromotionEnabled ?: true) }
+                                var editCategoriesStr by remember(appConfig) { mutableStateOf(appConfig?.storeCategories ?: "All,Fashion,Electronics,Home & Living,Beauty & Health,Toys & Games") }
 
                                 OutlinedTextField(
                                     value = editPromoText,
@@ -420,6 +605,13 @@ fun StorefrontScreen(viewModel: ShopViewModel) {
                                     value = editCarousel,
                                     onValueChange = { editCarousel = it },
                                     label = { Text("Slide Titles (semicolon separated)", fontSize = 11.sp) },
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+                                )
+                                OutlinedTextField(
+                                    value = editCategoriesStr,
+                                    onValueChange = { editCategoriesStr = it },
+                                    label = { Text("Store Categories (comma separated)", fontSize = 11.sp) },
                                     modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                                     textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
                                 )
@@ -446,8 +638,8 @@ fun StorefrontScreen(viewModel: ShopViewModel) {
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text("Promotion Coupon Pricing Optimization", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = DarkText)
-                                        Text("Runs internal pricing engine based on sales demand velocity", fontSize = 10.sp, color = Color.Gray)
+                                        Text("Enable Sliding Carousel Animation", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = DarkText)
+                                        Text("Enables horizontal sliding pager for hero banners", fontSize = 10.sp, color = Color.Gray)
                                     }
                                     Switch(
                                         checked = editAlgoEnabled,
@@ -467,7 +659,8 @@ fun StorefrontScreen(viewModel: ShopViewModel) {
                                             adText = editAdText,
                                             flashSalesDiscount = disc,
                                             carouselEditableContent = editCarousel,
-                                            algoEnabled = editAlgoEnabled
+                                            algoEnabled = editAlgoEnabled,
+                                            storeCategories = editCategoriesStr
                                         )
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = TemuOrangePrimary),
@@ -487,34 +680,91 @@ fun StorefrontScreen(viewModel: ShopViewModel) {
                 PromotionalHeroBanner(countdownTime = countdownStr, context = context, appConfig = appConfig)
             }
 
-            // Category Filter Row
+            // Feature: Brand Suggestions Row
             item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    categories.forEach { cat ->
-                        FilterChip(
-                            selected = selectedCategory == cat,
-                            onClick = { viewModel.selectCategory(cat) },
-                            label = { Text(cat, fontSize = 12.sp, fontWeight = FontWeight.Bold) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = TemuOrangePrimary,
-                                selectedLabelColor = Color.White,
-                                containerColor = Color.White,
-                                labelColor = DarkText
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
+                Column(modifier = Modifier.padding(top = 16.dp)) {
+                    Text(
+                        "Shop Top Brands",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = dynamicOnBackgroundText,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                    LazyRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(brandSuggestions) { brand ->
+                            Card(
+                                onClick = { viewModel.setQuery(brand) },
+                                shape = RoundedCornerShape(20.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                modifier = Modifier.height(36.dp),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(brand, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+            }
+
+            // Category Filter Row
+            @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+            stickyHeader {
+                Column(modifier = Modifier.background(MaterialTheme.colorScheme.surface)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        categories.forEach { cat ->
+                            FilterChip(
                                 selected = selectedCategory == cat,
-                                selectedBorderColor = Color.Transparent,
-                                borderColor = Color.LightGray.copy(alpha = 0.5f)
+                                onClick = { viewModel.selectCategory(cat) },
+                                label = { Text(cat, fontSize = 12.sp, fontWeight = FontWeight.Bold) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = TemuOrangePrimary,
+                                    selectedLabelColor = Color.White,
+                                    containerColor = MaterialTheme.colorScheme.surface,
+                                    labelColor = MaterialTheme.colorScheme.onSurface
+                                ),
+                                border = FilterChipDefaults.filterChipBorder(
+                                    enabled = true,
+                                    selected = selectedCategory == cat,
+                                    selectedBorderColor = Color.Transparent,
+                                    borderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                )
                             )
+                        }
+
+                        // Miraculous AI Finder Chip
+                        FilterChip(
+                            selected = false,
+                            onClick = { viewModel.askAiAssistant("Suggest something Miracle for me!") },
+                            label = { 
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFF1E90FF))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("AI Finder", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E90FF))
+                                }
+                            },
+                            colors = FilterChipDefaults.filterChipColors(containerColor = Color(0xFFF0F8FF)),
+                            border = FilterChipDefaults.filterChipBorder(enabled = true, selected = false, borderColor = Color(0xFF1E90FF))
                         )
                     }
+                    HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha=0.2f))
                 }
             }
 
@@ -529,7 +779,9 @@ fun StorefrontScreen(viewModel: ShopViewModel) {
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            if (selectedCategory == "All") "Lightning Flash Sale" else selectedCategory,
+                            if (query.isNotEmpty()) "Global Search Results" 
+                            else if (selectedCategory == "All") "Temu Global Marketplace" 
+                            else selectedCategory,
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Black,
                             color = DarkText
@@ -540,7 +792,7 @@ fun StorefrontScreen(viewModel: ShopViewModel) {
                                 .background(TemuOrangePrimary, RoundedCornerShape(4.dp))
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
-                            Text("UP TO 90% OFF", fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                            Text(if (query.isNotEmpty()) "FOUND" else "UP TO 90% OFF", fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Bold)
                         }
                     }
                     Text(
@@ -568,7 +820,7 @@ fun StorefrontScreen(viewModel: ShopViewModel) {
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            "No matching deals found",
+                            "No products found",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             color = DarkText
@@ -584,7 +836,12 @@ fun StorefrontScreen(viewModel: ShopViewModel) {
                 }
             } else {
                 // High-performance double columns list items
-                items(products.chunked(2)) { pair ->
+                itemsIndexed(products.chunked(2)) { index, pair ->
+                    // Inline Ad Injection every few rows
+                    if (index > 0 && index % 4 == 0) {
+                        InlineAdBanner(category = selectedCategory)
+                    }
+
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -606,155 +863,140 @@ fun StorefrontScreen(viewModel: ShopViewModel) {
                     }
                 }
             }
+            item {
+                Spacer(modifier = Modifier.height(100.dp))
+            }
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PromotionalHeroBanner(countdownTime: String, context: Context, appConfig: AppConfigEntity?) {
-    // Elegant layered card of hero banner with custom image reflection
     val imageId = getStoreBannerResourceId(context)
-
-    // Dynamic slideshow titles edited by administrator
     val rawCarousel = appConfig?.carouselEditableContent ?: "Flash Clearance Sale;Summer Electronics Deals;Global Clearance Event;Shop Like a Billionaire"
     val slideList = remember(rawCarousel) {
         rawCarousel.split(";").map { it.trim() }.filter { it.isNotEmpty() }
     }
     
-    var currentSlideIdx by remember { mutableIntStateOf(0) }
-    LaunchedEffect(slideList) {
-        if (slideList.size > 1) {
+    val carouselEnabled = appConfig?.algorithmicPromotionEnabled ?: true
+    
+    if (carouselEnabled && slideList.size > 1) {
+        val pagerState = rememberPagerState(pageCount = { slideList.size })
+        
+        LaunchedEffect(Unit) {
             while (true) {
-                delay(3000L)
-                currentSlideIdx = (currentSlideIdx + 1) % slideList.size
+                delay(4000L)
+                if (!pagerState.isScrollInProgress) {
+                    val next = (pagerState.currentPage + 1) % slideList.size
+                    pagerState.animateScrollToPage(next)
+                }
             }
         }
-    }
-    
-    val currentTitleText = if (slideList.isNotEmpty()) slideList[currentSlideIdx % slideList.size] else "Flash Clearance Sale"
-    val promoBadgeText = appConfig?.promoText ?: "90% OFF SPECIAL EVENT"
 
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(220.dp)
+                .padding(vertical = 12.dp),
+            contentPadding = PaddingValues(horizontal = 32.dp),
+            pageSpacing = 16.dp
+        ) { page ->
+            BannerContent(
+                title = slideList[page],
+                badge = appConfig?.promoText ?: "90% OFF SPECIAL EVENT",
+                countdown = countdownTime,
+                imageId = imageId,
+                modifier = Modifier.graphicsLayer {
+                    val pageOffset = (
+                        (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
+                    ).absoluteValue
+                    
+                    alpha = lerp(
+                        start = 0.5f,
+                        stop = 1f,
+                        fraction = 1f - pageOffset.coerceIn(0f, 1f)
+                    )
+                    
+                    scaleY = lerp(
+                        start = 0.85f,
+                        stop = 1f,
+                        fraction = 1f - pageOffset.coerceIn(0f, 1f)
+                    )
+                }
+            )
+        }
+    } else {
+        Box(modifier = Modifier.padding(16.dp)) {
+            BannerContent(
+                title = if (slideList.isNotEmpty()) slideList[0] else "Flash Sale",
+                badge = appConfig?.promoText ?: "90% OFF SPECIAL EVENT",
+                countdown = countdownTime,
+                imageId = imageId
+            )
+        }
+    }
+}
+
+@Composable
+fun BannerContent(
+    title: String,
+    badge: String,
+    countdown: String,
+    imageId: Int,
+    modifier: Modifier = Modifier
+) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .padding(16.dp)
-            .shadow(4.dp, RoundedCornerShape(16.dp))
-            .background(Color.White, RoundedCornerShape(16.dp))
             .height(200.dp)
+            .shadow(6.dp, RoundedCornerShape(16.dp))
+            .background(Color.White, RoundedCornerShape(16.dp))
             .clip(RoundedCornerShape(16.dp))
     ) {
         if (imageId != 0) {
             Image(
                 painter = painterResource(id = imageId),
-                contentDescription = "Promotional banner background image",
+                contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
         } else {
-            // Gradient backup if no auto-generated image is accessible
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.linearGradient(
-                            colors = listOf(TemuOrange, TemuOrangePrimary)
-                        )
-                    )
-            )
+            Box(modifier = Modifier.fillMaxSize().background(Brush.linearGradient(colors = listOf(TemuOrange, TemuOrangePrimary))))
         }
 
-        // Tint overlay for readabilities
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f))
-                    )
-                )
+                .background(Brush.verticalGradient(colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))))
         )
 
-        // Contents
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
+            modifier = Modifier.fillMaxSize().padding(16.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Box(
                 modifier = Modifier
-                    .background(Color.Yellow, RoundedCornerShape(12.dp))
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                    .background(Color.Yellow, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
             ) {
-                Text(
-                    promoBadgeText,
-                    fontSize = 11.sp,
-                    color = Color.Black,
-                    fontWeight = FontWeight.Bold
-                )
+                Text(badge, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Black)
             }
 
             Column {
-                Text(
-                    currentTitleText,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Black,
-                    color = Color.White
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Filled.AccessTime,
-                            contentDescription = null,
-                            tint = TemuYellowAccent,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            "Ends in: ",
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            countdownTime,
-                            color = TemuYellowAccent,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .background(Color.White, CircleShape)
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                "Claim",
-                                color = TemuOrangePrimary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.width(2.dp))
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowForward,
-                                contentDescription = null,
-                                tint = TemuOrangePrimary,
-                                modifier = Modifier.size(12.dp)
-                            )
-                        }
-                    }
+                Text(title, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.AccessTime, contentDescription = null, tint = TemuYellowAccent, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Ends in: ", color = Color.White, fontSize = 12.sp)
+                    Text(countdown, color = TemuYellowAccent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
     }
 }
+
 
 @Composable
 fun ProductGridCard(
@@ -762,9 +1004,12 @@ fun ProductGridCard(
     onSelect: () -> Unit,
     onAddToCart: () -> Unit
 ) {
+    val context = LocalContext.current
+    val imageRes = getProductImageResourceId(context, product.imageUrl)
+
     Card(
         onClick = onSelect,
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         modifier = Modifier
             .fillMaxWidth()
             .shadow(2.dp, RoundedCornerShape(12.dp))
@@ -772,7 +1017,6 @@ fun ProductGridCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            // Visual Image placeholder drawing based on product type
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -781,35 +1025,44 @@ fun ProductGridCard(
                         Brush.radialGradient(
                             colors = listOf(
                                 getProductCategoryColor(product.category).copy(alpha = 0.35f),
-                                Color.White
+                                MaterialTheme.colorScheme.surface
                             )
                         )
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                // Drawing nice icon representation
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        getProductCategoryIcon(product.category),
-                        contentDescription = "Product representation icon",
-                        tint = getProductCategoryColor(product.category),
-                        modifier = Modifier.size(46.dp)
+                if (imageRes != 0) {
+                    AsyncImage(
+                        model = imageRes,
+                        contentDescription = product.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Box(
-                        modifier = Modifier
-                            .background(
-                                getProductCategoryColor(product.category).copy(alpha = 0.15f),
-                                RoundedCornerShape(10.dp)
-                            )
-                            .padding(horizontal = 8.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            product.category,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = getProductCategoryColor(product.category)
+                } else {
+                    // Drawing nice icon representation
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            getProductCategoryIcon(product.category),
+                            contentDescription = "Product representation icon",
+                            tint = getProductCategoryColor(product.category),
+                            modifier = Modifier.size(46.dp)
                         )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    getProductCategoryColor(product.category).copy(alpha = 0.15f),
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                product.category,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = getProductCategoryColor(product.category)
+                            )
+                        }
                     }
                 }
 
@@ -954,6 +1207,8 @@ fun CartScreen(viewModel: ShopViewModel) {
     val savedAmount by viewModel.cartSavedPrice.collectAsStateWithLifecycle()
     val totalAmount by viewModel.cartTotalPrice.collectAsStateWithLifecycle()
     val totalCount by viewModel.cartTotalItems.collectAsStateWithLifecycle()
+    val finalPrice by viewModel.cartFinalPrice.collectAsStateWithLifecycle()
+    val loyaltyPercent by viewModel.loyaltyDiscountPercent.collectAsStateWithLifecycle()
 
     val activeUser by viewModel.activeUser.collectAsStateWithLifecycle()
     val profile by viewModel.activeUserProfile.collectAsStateWithLifecycle()
@@ -961,13 +1216,14 @@ fun CartScreen(viewModel: ShopViewModel) {
     var payWithWallet by remember { mutableStateOf(false) }
     var promoCodeInput by remember { mutableStateOf("") }
 
-    val discountPercent = if (promoCodeInput.uppercase().trim() == "TEMUFLASHSALE40") 40 else if (promoCodeInput.uppercase().trim() == "WELCOME50") 20 else 0
-    val postCouponTotal = totalAmount * (1.0 - (discountPercent / 100.0))
+    val couponDiscountPercent = if (promoCodeInput.uppercase().trim() == "TEMUFLASHSALE40") 40 else if (promoCodeInput.uppercase().trim() == "WELCOME50") 20 else 0
+    val totalDiscountPercent = (couponDiscountPercent + loyaltyPercent).coerceAtMost(100)
+    val combinedDiscountAmount = totalAmount - finalPrice
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(RetailBackground)
+            .background(MaterialTheme.colorScheme.background)
     ) {
         // Simple Top Header Bar
         TopAppBarHeader("Shopping Cart ($totalCount)")
@@ -994,13 +1250,13 @@ fun CartScreen(viewModel: ShopViewModel) {
                         "Your cart is empty",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
-                        color = DarkText
+                        color = MaterialTheme.colorScheme.onBackground
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         "Slash up to 90% off premium items in our store and add them here to order!",
                         fontSize = 13.sp,
-                        color = Color.Gray,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
                     )
                     Spacer(modifier = Modifier.height(24.dp))
@@ -1093,21 +1349,29 @@ fun CartScreen(viewModel: ShopViewModel) {
                     } else {
                         // Logged in user options
                         Column(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-                            Text("Payment Gateway Option:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = DarkText)
+                            Text("Payment Gateway Option:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                            val canUseCOD = (profile?.purchaseCount ?: 0) >= 3
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                                 horizontalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.clickable { payWithWallet = false }
+                                    modifier = Modifier.clickable(enabled = canUseCOD) { payWithWallet = false },
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     RadioButton(
                                         selected = !payWithWallet,
-                                        onClick = { payWithWallet = false },
+                                        onClick = { if (canUseCOD) payWithWallet = false },
+                                        enabled = canUseCOD,
                                         colors = RadioButtonDefaults.colors(selectedColor = TemuOrangePrimary)
                                     )
-                                    Text("Cash On Delivery (COD)", fontSize = 12.sp, color = DarkText)
+                                    Column {
+                                        Text("Cash On Delivery", fontSize = 12.sp, color = if (canUseCOD) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+                                        if (!canUseCOD) {
+                                            Text("(Unlock after 3 purchases)", fontSize = 9.sp, color = AlertRed)
+                                        }
+                                    }
                                 }
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
@@ -1118,7 +1382,14 @@ fun CartScreen(viewModel: ShopViewModel) {
                                         onClick = { payWithWallet = true },
                                         colors = RadioButtonDefaults.colors(selectedColor = TemuOrangePrimary)
                                     )
-                                    Text("Temu Pay Secure Wallet", fontSize = 12.sp, color = DarkText)
+                                    Text("Temu Pay Secure Wallet", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
+                                }
+                            }
+                            
+                            // Effect to automatically select wallet if COD is locked
+                            LaunchedEffect(canUseCOD) {
+                                if (!canUseCOD && !payWithWallet) {
+                                    payWithWallet = true
                                 }
                             }
 
@@ -1139,9 +1410,9 @@ fun CartScreen(viewModel: ShopViewModel) {
                                         String.format("$%.2f", currentBal),
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (currentBal >= postCouponTotal) PositiveGreen else AlertRed
+                                        color = if (currentBal >= finalPrice) PositiveGreen else AlertRed
                                     )
-                                    if (currentBal < postCouponTotal) {
+                                    if (currentBal < finalPrice) {
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text("(Shortage - Deposit under Profile)", fontSize = 10.sp, color = AlertRed, fontWeight = FontWeight.Bold)
                                     }
@@ -1162,9 +1433,9 @@ fun CartScreen(viewModel: ShopViewModel) {
                                 ),
                                 singleLine = true
                             )
-                            if (discountPercent > 0) {
+                            if (couponDiscountPercent > 0) {
                                 Text(
-                                    "✓ Promo applied: $discountPercent% Off savings on checkout total!",
+                                    "✓ Promo applied: $couponDiscountPercent% Off savings on checkout total!",
                                     color = PositiveGreen,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
@@ -1190,14 +1461,34 @@ fun CartScreen(viewModel: ShopViewModel) {
                         Text("Special Instant Discount:", fontSize = 13.sp, color = AlertRed, fontWeight = FontWeight.Medium)
                         Text(String.format("-$%.2f", savedAmount), fontSize = 13.sp, color = AlertRed, fontWeight = FontWeight.Bold)
                     }
-                    if (discountPercent > 0) {
+                    if (loyaltyPercent > 0) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Customer Loyalty Discount:", fontSize = 13.sp, color = AlertRed, fontWeight = FontWeight.Medium)
+                            Text("-$loyaltyPercent%", fontSize = 13.sp, color = AlertRed, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    if (couponDiscountPercent > 0) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text("Coupon Discount:", fontSize = 13.sp, color = AlertRed, fontWeight = FontWeight.Medium)
-                            Text(String.format("-$%.2f", totalAmount - postCouponTotal), fontSize = 13.sp, color = AlertRed, fontWeight = FontWeight.Bold)
+                            Text("-$couponDiscountPercent%", fontSize = 13.sp, color = AlertRed, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    if (totalDiscountPercent > 0) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Total Added Discounts:", fontSize = 13.sp, color = AlertRed, fontWeight = FontWeight.Medium)
+                            Text(String.format("-$%.2f", combinedDiscountAmount), fontSize = 13.sp, color = AlertRed, fontWeight = FontWeight.Bold)
                         }
                     }
                     Spacer(modifier = Modifier.height(4.dp))
@@ -1217,9 +1508,9 @@ fun CartScreen(viewModel: ShopViewModel) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column {
-                            Text("Total Amount:", fontSize = 13.sp, color = DarkText, fontWeight = FontWeight.Medium)
+                            Text("Total Amount:", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium)
                             Text(
-                                String.format("$%.2f", if (discountPercent > 0) postCouponTotal else totalAmount),
+                                String.format("$%.2f", finalPrice),
                                 fontSize = 20.sp,
                                 fontWeight = FontWeight.Black,
                                 color = TemuOrangePrimary
@@ -1252,8 +1543,11 @@ fun CartItemRow(
     onUpdateQty: (Int) -> Unit,
     onRemove: () -> Unit
 ) {
+    val context = LocalContext.current
+    val imageRes = getProductImageResourceId(context, cartItem.product.imageUrl)
+
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier
             .fillMaxWidth()
@@ -1265,22 +1559,29 @@ fun CartItemRow(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Left category visual symbol instead of heavy network image
-            Box(
-                modifier = Modifier
-                    .size(64.dp)
-                    .background(
-                        getProductCategoryColor(cartItem.product.category).copy(alpha = 0.15f),
-                        RoundedCornerShape(8.dp)
-                    ),
-                contentAlignment = Alignment.Center
+            // Updated left side with real image
+            Card(
+                modifier = Modifier.size(64.dp),
+                shape = RoundedCornerShape(8.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
-                Icon(
-                    getProductCategoryIcon(cartItem.product.category),
-                    contentDescription = null,
-                    tint = getProductCategoryColor(cartItem.product.category),
-                    modifier = Modifier.size(30.dp)
-                )
+                if (imageRes != 0) {
+                    AsyncImage(
+                        model = imageRes,
+                        contentDescription = cartItem.product.name,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            getProductCategoryIcon(cartItem.product.category),
+                            contentDescription = null,
+                            tint = getProductCategoryColor(cartItem.product.category),
+                            modifier = Modifier.size(30.dp)
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.width(12.dp))
@@ -1296,7 +1597,7 @@ fun CartItemRow(
                         cartItem.product.name,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        color = DarkText,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
@@ -1308,7 +1609,7 @@ fun CartItemRow(
                         Icon(
                             Icons.Filled.Delete,
                             contentDescription = "Remove item from cart",
-                            tint = Color.Gray,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -1327,7 +1628,7 @@ fun CartItemRow(
                     Text(
                         String.format("$%.2f", cartItem.product.price),
                         fontSize = 11.sp,
-                        color = Color.Gray,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textDecoration = TextDecoration.LineThrough
                     )
                 }
@@ -1342,7 +1643,7 @@ fun CartItemRow(
                 ) {
                     Box(
                         modifier = Modifier
-                            .background(RetailBackground, RoundedCornerShape(16.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(16.dp))
                             .padding(horizontal = 4.dp, vertical = 2.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1350,20 +1651,20 @@ fun CartItemRow(
                                 onClick = { onUpdateQty(cartItem.quantity - 1) },
                                 modifier = Modifier.size(28.dp)
                             ) {
-                                Icon(Icons.Filled.Remove, contentDescription = "Decrease quantity", tint = DarkText, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Filled.Remove, contentDescription = "Decrease quantity", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(16.dp))
                             }
                             Text(
                                 cartItem.quantity.toString(),
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = DarkText,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.padding(horizontal = 10.dp)
                             )
                             IconButton(
                                 onClick = { onUpdateQty(cartItem.quantity + 1) },
                                 modifier = Modifier.size(28.dp)
                             ) {
-                                Icon(Icons.Filled.Add, contentDescription = "Increase quantity", tint = DarkText, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Filled.Add, contentDescription = "Increase quantity", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(16.dp))
                             }
                         }
                     }
@@ -1373,7 +1674,7 @@ fun CartItemRow(
                         "Total: " + String.format("$%.2f", cartItem.totalDiscountedPrice),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = DarkText
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
             }
@@ -1388,12 +1689,15 @@ fun CartItemRow(
 fun OrdersScreen(viewModel: ShopViewModel) {
     val orders by viewModel.allOrders.collectAsStateWithLifecycle()
     val orderItems by viewModel.allOrderItems.collectAsStateWithLifecycle()
+    val allProducts by viewModel.allProducts.collectAsStateWithLifecycle()
+    
     var selectedOrderForTracking by remember { mutableStateOf<com.example.data.OrderEntity?>(null) }
+    var selectedProductForDetail by remember { mutableStateOf<com.example.data.ProductEntity?>(null) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(RetailBackground)
+            .background(MaterialTheme.colorScheme.background)
     ) {
         TopAppBarHeader("My Temu Orders")
 
@@ -1419,13 +1723,13 @@ fun OrdersScreen(viewModel: ShopViewModel) {
                         "No orders placed yet",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
-                        color = DarkText
+                        color = MaterialTheme.colorScheme.onBackground
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         "Slash up to 90% off standard pricing and check out inside your Cart to start shopping!",
                         fontSize = 13.sp,
-                        color = Color.Gray,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
                     )
                     Spacer(modifier = Modifier.height(24.dp))
@@ -1461,11 +1765,108 @@ fun OrdersScreen(viewModel: ShopViewModel) {
                     OrderRowCard(
                         order = order,
                         items = matchedItems,
-                        onTrackOrder = { selectedOrderForTracking = order }
+                        allProducts = allProducts,
+                        onTrackOrder = { selectedOrderForTracking = order },
+                        onItemClick = { selectedProductForDetail = it }
                     )
                 }
             }
         }
+    }
+
+    // Product Detail Dialog
+    selectedProductForDetail?.let { product ->
+        val context = LocalContext.current
+        val imageRes = getProductImageResourceId(context, product.imageUrl)
+        
+        AlertDialog(
+            onDismissRequest = { selectedProductForDetail = null },
+            title = { 
+                Text(
+                    product.name, 
+                    fontWeight = FontWeight.Black, 
+                    fontSize = 18.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                ) 
+            },
+            text = { 
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        if (imageRes != 0) {
+                            AsyncImage(
+                                model = imageRes,
+                                contentDescription = product.name,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier.fillMaxSize().background(Color.Gray.copy(alpha = 0.1f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    getProductCategoryIcon(product.category),
+                                    contentDescription = null,
+                                    tint = getProductCategoryColor(product.category),
+                                    modifier = Modifier.size(64.dp)
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        product.description, 
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        lineHeight = 20.sp
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Sale Category: ${product.category}",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = getProductCategoryColor(product.category)
+                        )
+                        Text(
+                            "Price: $${String.format("%.2f", product.price)}", 
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Black,
+                            color = TemuOrangePrimary
+                        )
+                    }
+                } 
+            },
+            confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { selectedProductForDetail = null }) {
+                        Text("Close", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Button(
+                        onClick = { 
+                            viewModel.addToCart(product)
+                            selectedProductForDetail = null
+                            viewModel.selectScreen(ShopScreen.CART)
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = TemuOrangePrimary),
+                        shape = RoundedCornerShape(24.dp)
+                    ) {
+                        Text("Buy Again", fontWeight = FontWeight.Bold)
+                    }
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 8.dp
+        )
     }
 
     // Interactive Tracking Dialog
@@ -1518,6 +1919,22 @@ fun OrdersScreen(viewModel: ShopViewModel) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text("Retrieving live tracking telemetry...", fontSize = 11.sp, color = Color.Gray)
                     } else {
+                        // Display ordered products in the tracker details
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFFF3F4F6), RoundedCornerShape(8.dp))
+                                .padding(12.dp)
+                        ) {
+                            Text("Products inside package:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = DarkText)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            val items = orderItems.filter { it.orderId == order.orderId }
+                            items.forEach { item ->
+                                Text("• ${item.quantity}x ${item.productName}", fontSize = 11.sp, color = Color.DarkGray)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+
                         // Display the real dynamic checkpoints loaded from the backend
                         trackingInfo.checkpoints.forEach { checkpoint ->
                             TrackingCheckpoint(
@@ -1547,13 +1964,15 @@ fun OrdersScreen(viewModel: ShopViewModel) {
 fun OrderRowCard(
     order: com.example.data.OrderEntity,
     items: List<com.example.data.OrderItemEntity>,
-    onTrackOrder: () -> Unit
+    allProducts: List<com.example.data.ProductEntity>,
+    onTrackOrder: () -> Unit,
+    onItemClick: (com.example.data.ProductEntity) -> Unit
 ) {
     val sdf = java.text.SimpleDateFormat("MMM dd, yyyy • hh:mm a", java.util.Locale.US)
     val dateStr = sdf.format(java.util.Date(order.timestamp))
 
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(14.dp),
         modifier = Modifier
             .fillMaxWidth()
@@ -1570,12 +1989,12 @@ fun OrderRowCard(
                         "Receipt #TEMU-${order.orderId + 84792}",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Black,
-                        color = DarkText
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                         dateStr,
                         fontSize = 11.sp,
-                        color = Color.Gray
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
@@ -1597,31 +2016,63 @@ fun OrderRowCard(
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items.forEach { item ->
+                    val product = allProducts.find { it.id == item.productId }
+                    val context = LocalContext.current
+                    val imageRes = product?.let { getProductImageResourceId(context, it.imageUrl) } ?: 0
+                    
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { product?.let { onItemClick(it) } }
+                            .padding(vertical = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .background(getProductCategoryColor(item.category), CircleShape)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                item.productName,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = DarkText,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Card(
+                                modifier = Modifier.size(48.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                if (imageRes != 0) {
+                                    AsyncImage(
+                                        model = imageRes,
+                                        contentDescription = item.productName,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            getProductCategoryIcon(item.category),
+                                            contentDescription = null,
+                                            tint = getProductCategoryColor(item.category),
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    item.productName,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    item.category,
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                         Text(
                             "qty: ${item.quantity} • " + String.format("$%.2f", item.price * item.quantity),
                             fontSize = 12.sp,
-                            color = Color.DarkGray,
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(start = 16.dp)
                         )
@@ -1837,6 +2288,30 @@ fun ProductDetailsDialog(
                             color = Color.DarkGray,
                             lineHeight = 18.sp
                         )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        // AI Miracle Insight Component
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFFF0F8FF), RoundedCornerShape(12.dp))
+                                .padding(12.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = Color(0xFF1E90FF), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("AI Miracle Insights", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E90FF))
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                "Sparking Joy: Our TEMU AI analyzed million data points and found that visitors who viewed this ${product.category} item also celebrated with a 98% satisfaction rate! Miracle deal alert: This price is 40% lower than regional averages. Grab it now! 🚀✨",
+                                fontSize = 11.sp,
+                                color = Color.DarkGray,
+                                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                                lineHeight = 15.sp
+                            )
+                        }
 
                         Divider(modifier = Modifier.padding(vertical = 16.dp))
 
@@ -2315,6 +2790,15 @@ fun parseHexColor(hexStr: String): Color {
     }
 }
 
+fun getProductImageResourceId(context: Context, imageUrl: String): Int {
+    if (imageUrl.isEmpty()) return 0
+    return try {
+        context.resources.getIdentifier(imageUrl, "drawable", context.packageName)
+    } catch (e: Exception) {
+        0
+    }
+}
+
 @Composable
 fun AuthSettingsScreen(viewModel: ShopViewModel) {
     val activeUser by viewModel.activeUser.collectAsStateWithLifecycle()
@@ -2329,11 +2813,11 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
 
     val brandPrimaryColor = parseHexColor(brandColorHex)
 
-    val dynamicBackground = if (isDarkTheme) Color(0xFF121214) else RetailBackground
-    val dynamicCardContainer = if (isDarkTheme) Color(0xFF1E1E22) else Color.White
-    val dynamicOnBackgroundText = if (isDarkTheme) Color.White else DarkText
-    val dynamicSecondaryText = if (isDarkTheme) Color(0xFFB0B3BC) else Color.Gray
-    val dynamicBorder = if (isDarkTheme) Color(0xFF2C2D31) else Color.LightGray
+    val dynamicBackground = MaterialTheme.colorScheme.background
+    val dynamicCardContainer = MaterialTheme.colorScheme.surface
+    val dynamicOnBackgroundText = MaterialTheme.colorScheme.onBackground
+    val dynamicSecondaryText = MaterialTheme.colorScheme.onSurfaceVariant
+    val dynamicBorder = MaterialTheme.colorScheme.outlineVariant
 
     // Auth screen states: "LOGIN", "REGISTER", "VERIFY_OTP", "FORGOT_PASSWORD", "RESET_PASSWORD"
     var authState by remember { mutableStateOf("LOGIN") }
@@ -2346,10 +2830,9 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
     var resetTokenInput by remember { mutableStateOf("") }
     var newPasswordForResetInput by remember { mutableStateOf("") }
     var adminSignUpTokenInput by remember { mutableStateOf("") }
+    var referredByInput by remember { mutableStateOf("") }
 
     // Changing Profile attributes
-    var newPasswordInput by remember { mutableStateOf("") }
-    var newPhoneInput by remember { mutableStateOf("") }
     var depositAmountInput by remember { mutableStateOf("") }
     var showPaymentGatewayDialog by remember { mutableStateOf(false) }
     var gatewayAmountToDeposit by remember { mutableStateOf(50.0) }
@@ -2360,6 +2843,9 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
     var brandNameInput by remember(brandName) { mutableStateOf(brandName) }
     var brandColorHexInput by remember(brandColorHex) { mutableStateOf(brandColorHex) }
     var launcherNameInput by remember(launcherName) { mutableStateOf(launcherName) }
+    
+    val appConfig by viewModel.appConfig.collectAsStateWithLifecycle()
+    var referralBonusInput by remember(appConfig) { mutableStateOf(appConfig?.referralBonusAmount?.toString() ?: "20") }
 
     Column(
         modifier = Modifier
@@ -2434,51 +2920,6 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
 
                     when (authState) {
                         "LOGIN" -> {
-                            // OAuth providers for premium login
-                            Text(
-                                "CHOOSE OAUTH INBOUND PROVIDERS:",
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = dynamicSecondaryText,
-                                modifier = Modifier.align(Alignment.Start)
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Button(
-                                    onClick = {
-                                        emailInput = "google.oauth@gmail.com"
-                                        passwordInput = "oauth123"
-                                        viewModel.loginRemote("google.oauth@gmail.com", "oauth123")
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = dynamicBackground),
-                                    modifier = Modifier.weight(1f).height(40.dp).border(1.dp, dynamicBorder, RoundedCornerShape(8.dp)),
-                                    contentPadding = PaddingValues(0.dp)
-                                ) {
-                                    Icon(Icons.Filled.AccountBox, contentDescription = null, tint = brandPrimaryColor, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Google Auth", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = dynamicOnBackgroundText)
-                                }
-                                Button(
-                                    onClick = {
-                                        emailInput = "apple.oauth@icloud.com"
-                                        passwordInput = "oauth123"
-                                        viewModel.loginRemote("apple.oauth@icloud.com", "oauth123")
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = dynamicBackground),
-                                    modifier = Modifier.weight(1f).height(40.dp).border(1.dp, dynamicBorder, RoundedCornerShape(8.dp)),
-                                    contentPadding = PaddingValues(0.dp)
-                                ) {
-                                    Icon(Icons.Filled.Stars, contentDescription = null, tint = dynamicOnBackgroundText, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Apple OAuth", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = dynamicOnBackgroundText)
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
                             OutlinedTextField(
                                 value = emailInput,
                                 onValueChange = { emailInput = it },
@@ -2530,59 +2971,12 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                                     Text("Forgot Password?", fontSize = 12.sp, color = brandPrimaryColor, fontWeight = FontWeight.Bold)
                                 }
                                 TextButton(onClick = { authState = "REGISTER" }) {
-                                    Text("Join Register Portal", fontSize = 12.sp, color = brandPrimaryColor, fontWeight = FontWeight.Bold)
+                                    Text("Sign up or Register", fontSize = 12.sp, color = brandPrimaryColor, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
 
                         "REGISTER" -> {
-                            // OAuth builders for signup
-                            Text(
-                                "REGISTER USING OAUTH PROVIDERS:",
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = dynamicSecondaryText,
-                                modifier = Modifier.align(Alignment.Start)
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Button(
-                                    onClick = {
-                                        emailInput = "google.oauth@gmail.com"
-                                        nameInput = "OAuth User"
-                                        passwordInput = "oauth123"
-                                        viewModel.loginRemote("google.oauth@gmail.com", "oauth123")
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = dynamicBackground),
-                                    modifier = Modifier.weight(1f).height(40.dp).border(1.dp, dynamicBorder, RoundedCornerShape(8.dp)),
-                                    contentPadding = PaddingValues(0.dp)
-                                ) {
-                                    Icon(Icons.Filled.Group, contentDescription = null, tint = brandPrimaryColor, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Google Sign", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = dynamicOnBackgroundText)
-                                }
-                                Button(
-                                    onClick = {
-                                        emailInput = "apple.oauth@icloud.com"
-                                        nameInput = "OAuth User"
-                                        passwordInput = "oauth123"
-                                        viewModel.loginRemote("apple.oauth@icloud.com", "oauth123")
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = dynamicBackground),
-                                    modifier = Modifier.weight(1f).height(40.dp).border(1.dp, dynamicBorder, RoundedCornerShape(8.dp)),
-                                    contentPadding = PaddingValues(0.dp)
-                                ) {
-                                    Icon(Icons.Filled.Shield, contentDescription = null, tint = dynamicOnBackgroundText, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Apple Join", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = dynamicOnBackgroundText)
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
                             OutlinedTextField(
                                 value = nameInput,
                                 onValueChange = { nameInput = it },
@@ -2653,6 +3047,23 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                                     unfocusedTextColor = dynamicOnBackgroundText
                                 )
                             )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            
+                            OutlinedTextField(
+                                value = referredByInput,
+                                onValueChange = { referredByInput = it },
+                                label = { Text("Referral Code (Optional)") },
+                                modifier = Modifier.fillMaxWidth().testTag("reg_referral_input"),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = brandPrimaryColor,
+                                    unfocusedBorderColor = dynamicBorder,
+                                    focusedLabelColor = brandPrimaryColor,
+                                    unfocusedLabelColor = dynamicSecondaryText,
+                                    focusedTextColor = dynamicOnBackgroundText,
+                                    unfocusedTextColor = dynamicOnBackgroundText
+                                )
+                            )
                             Spacer(modifier = Modifier.height(16.dp))
                             Button(
                                 onClick = {
@@ -2663,7 +3074,8 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                                         passwordStr = passwordInput,
                                         nameStr = nameInput.ifEmpty { "Default Buyer" },
                                         roleStr = determinedRole,
-                                        adminToken = if (determinedRole == "admin") adminSignUpTokenInput else null
+                                        adminToken = if (determinedRole == "admin") adminSignUpTokenInput else null,
+                                        referredBy = referredByInput.takeIf { it.isNotBlank() }
                                     ) { isSuccess, info ->
                                         if (isSuccess) {
                                             authState = "VERIFY_OTP"
@@ -3014,7 +3426,7 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
 
                     Divider(modifier = Modifier.padding(vertical = 16.dp), color = dynamicBorder.copy(alpha = 0.5f))
 
-                    // --- MANAGE PASSWORD & MOBILE PROFILE ---
+                    // --- MANAGE PASSWORD ---
                     Text(
                         "Update Personal Credentials",
                         fontSize = 14.sp,
@@ -3023,64 +3435,15 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     
-                    OutlinedTextField(
-                        value = newPasswordInput,
-                        onValueChange = { newPasswordInput = it },
-                        label = { Text("Change Password", color = dynamicSecondaryText) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = brandPrimaryColor,
-                            unfocusedBorderColor = dynamicBorder,
-                            focusedTextColor = dynamicOnBackgroundText,
-                            unfocusedTextColor = dynamicOnBackgroundText
-                        )
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
                     Button(
-                        onClick = {
-                            if (newPasswordInput.isNotEmpty()) {
-                                viewModel.changePassword(newPasswordInput)
-                                newPasswordInput = ""
-                            }
-                        },
+                        onClick = { authState = "FORGOT_PASSWORD" },
                         colors = ButtonDefaults.buttonColors(containerColor = brandPrimaryColor),
-                        modifier = Modifier.align(Alignment.End).height(36.dp),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 2.dp)
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("Save Password", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("Change Password", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    OutlinedTextField(
-                        value = newPhoneInput,
-                        onValueChange = { newPhoneInput = it },
-                        placeholder = { Text(profile?.phoneNumber ?: "+1-555-019-2831", color = dynamicSecondaryText) },
-                        label = { Text("Change Phone Number", color = dynamicSecondaryText) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = brandPrimaryColor,
-                            unfocusedBorderColor = dynamicBorder,
-                            focusedTextColor = dynamicOnBackgroundText,
-                            unfocusedTextColor = dynamicOnBackgroundText
-                        )
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Button(
-                        onClick = {
-                            if (newPhoneInput.isNotEmpty()) {
-                                viewModel.changePhoneNumber(newPhoneInput)
-                                newPhoneInput = ""
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = brandPrimaryColor),
-                        modifier = Modifier.align(Alignment.End).height(36.dp),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 2.dp)
-                    ) {
-                        Text("Save Phone", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                    }
                 }
             }
 
@@ -3171,6 +3534,22 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                             )
                         )
 
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        OutlinedTextField(
+                            value = referralBonusInput,
+                            onValueChange = { referralBonusInput = it },
+                            label = { Text("Referral Bonus Payout Amount ($)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = brandPrimaryColor,
+                                unfocusedBorderColor = dynamicBorder,
+                                focusedTextColor = dynamicOnBackgroundText
+                            )
+                        )
+
                         Spacer(modifier = Modifier.height(14.dp))
 
                         Button(
@@ -3178,7 +3557,8 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                                 viewModel.saveCustomBranding(
                                     brandName = brandNameInput,
                                     brandColorHex = brandColorHexInput,
-                                    launcherName = launcherNameInput
+                                    launcherName = launcherNameInput,
+                                    referralBonusAmount = referralBonusInput.toIntOrNull() ?: 20
                                 )
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = brandPrimaryColor),
@@ -3396,7 +3776,7 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                     )
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    val gateways = listOf("Stripe", "PayPal", "Paystack", "Flutterwave", "Razorpay")
+                    val gateways = listOf("Stripe", "PayPal", "Paystack", "Flutterwave", "Monnify", "Razorpay")
                     Row(
                         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -3988,11 +4368,86 @@ fun AdminDashboardScreen(viewModel: ShopViewModel) {
                     fontSize = 15.sp,
                     color = Color.Black
                 )
+                
+                Button(
+                    onClick = { viewModel.setProductForEdit(ProductEntity(0, "New Product", "", "Fashion", 19.99, 0, "", 50, 0)) },
+                    colors = ButtonDefaults.buttonColors(containerColor = TemuOrangePrimary),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Add New Global Product", fontWeight = FontWeight.Bold)
+                }
                 Text(
                     "Deductions, restock items and seed operations directly on server catalog",
                     fontSize = 10.sp,
                     color = Color.Gray
                 )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Analytics Card
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            "Analytics & Store Inventory",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = TemuOrangePrimary
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        val totalProducts = productsCatalog.size
+                        val totalStock = productsCatalog.sumOf { it.stockQuantity }
+                        val lowStockCount = lowStockProducts.size
+                        
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Column {
+                                Text("Total Products:", fontSize = 11.sp, color = Color.Gray)
+                                Text("$totalProducts", fontSize = 14.sp, fontWeight = FontWeight.Black, color = DarkText)
+                            }
+                            Column {
+                                Text("Inventory Count:", fontSize = 11.sp, color = Color.Gray)
+                                Text("$totalStock", fontSize = 14.sp, fontWeight = FontWeight.Black, color = DarkText)
+                            }
+                            Column {
+                                Text("Low Stock Alert:", fontSize = 11.sp, color = Color.Gray)
+                                Text("$lowStockCount", fontSize = 14.sp, fontWeight = FontWeight.Black, color = if (lowStockCount > 0) AlertRed else PositiveGreen)
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                // Advanced User Control Card
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            "Advanced User Control",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = TemuOrangePrimary
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text("Search and manage customer accounts proactively.", fontSize = 10.sp, color = Color.Gray)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        var searchQuery by remember { mutableStateOf("") }
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Search User Email...", fontSize = 11.sp) },
+                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp),
+                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            trailingIcon = {
+                                IconButton(onClick = { /* Implement user search/ban later */ }) {
+                                    Icon(Icons.Filled.Search, contentDescription = null, Modifier.size(16.dp))
+                                }
+                            }
+                        )
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -4060,7 +4515,7 @@ fun AdminDashboardScreen(viewModel: ShopViewModel) {
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Database controllers card
+                // Database seeding controllers
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
@@ -4087,6 +4542,167 @@ fun AdminDashboardScreen(viewModel: ShopViewModel) {
                             Text("Re-seed Store Catalog with default items", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AdminProductDialog(product: ProductEntity, viewModel: ShopViewModel, onDismiss: () -> Unit) {
+    var name by remember { mutableStateOf(product.name) }
+    var description by remember { mutableStateOf(product.description) }
+    var category by remember { mutableStateOf(product.category) }
+    var priceStr by remember { mutableStateOf(product.price.toString()) }
+    var stockStr by remember { mutableStateOf(product.stockQuantity.toString()) }
+    var imageUrl by remember { mutableStateOf(product.imageUrl) }
+    
+    val aiResponse by viewModel.aiAssistantResponse.collectAsStateWithLifecycle()
+    val isAILoading by viewModel.isAILoading.collectAsStateWithLifecycle()
+    
+    // Auto-fill description from AI if it arrives and we are in AI mode
+    LaunchedEffect(aiResponse) {
+        if (aiResponse != null && aiResponse!!.length > 5 && !aiResponse!!.startsWith("🤖")) {
+             description = aiResponse!!
+        }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White)
+        ) {
+            Column(modifier = Modifier.padding(16.dp).verticalScroll(rememberScrollState())) {
+                Text(if (product.id == 0L) "Add Product" else "Edit Product", fontWeight = FontWeight.Black, fontSize = 18.sp, color = TemuOrangePrimary)
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("App Name", fontSize = 11.sp) }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = category, onValueChange = { category = it }, label = { Text("Category", fontSize = 11.sp) }, modifier = Modifier.fillMaxWidth())
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                Column(modifier = Modifier.fillMaxWidth().background(Color(0xFFFFF5F2), RoundedCornerShape(8.dp)).padding(8.dp)) {
+                    Text("Product Description (AI Assisted)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TemuOrangePrimary)
+                    OutlinedTextField(
+                        value = description, 
+                        onValueChange = { description = it }, 
+                        modifier = Modifier.fillMaxWidth().height(100.dp),
+                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Button(
+                        onClick = { viewModel.generateAIDescription(name, category) },
+                        modifier = Modifier.align(Alignment.End),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Black),
+                        enabled = !isAILoading
+                    ) {
+                        if (isAILoading) CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)
+                        else {
+                            Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Magic AI Description", fontSize = 10.sp)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(value = priceStr, onValueChange = { priceStr = it }, label = { Text("Price", fontSize = 11.sp) }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                OutlinedTextField(value = stockStr, onValueChange = { stockStr = it }, label = { Text("Stock", fontSize = 11.sp) }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                OutlinedTextField(value = imageUrl, onValueChange = { imageUrl = it }, label = { Text("Image URL / Key", fontSize = 11.sp) }, modifier = Modifier.fillMaxWidth())
+
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel") }
+                    Button(
+                        onClick = {
+                            val p = product.copy(
+                                name = name,
+                                description = description,
+                                category = category,
+                                price = priceStr.toDoubleOrNull() ?: 0.0,
+                                stockQuantity = stockStr.toIntOrNull() ?: 0,
+                                imageUrl = imageUrl
+                            )
+                            if (product.id == 0L) viewModel.createAdminProduct(p)
+                            else viewModel.updateAdminProduct(p)
+                            onDismiss()
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = TemuOrangePrimary)
+                    ) {
+                        Text("Save Product")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AIAssistantDialog(viewModel: ShopViewModel, onDismiss: () -> Unit) {
+    var userInput by remember { mutableStateOf("") }
+    val aiResponse by viewModel.aiAssistantResponse.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isAILoading.collectAsStateWithLifecycle()
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 500.dp)
+                .padding(16.dp),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = TemuOrangePrimary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Temu AI Magic Selection", fontWeight = FontWeight.Black, fontSize = 18.sp)
+                }
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Box(modifier = Modifier.weight(1f).fillMaxWidth().background(Color(0xFFF5F5F5), RoundedCornerShape(12.dp)).padding(12.dp)) {
+                    if (aiResponse == null && !isLoading) {
+                        Text("Search like a billionaire! 💎 Try: 'I need a cool gift for my brother under $30' or 'Show me the best summer fashion'", color = Color.Gray, fontSize = 13.sp)
+                    } else if (isLoading) {
+                        CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = TemuOrangePrimary)
+                    } else {
+                        Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                            Text(aiResponse ?: "", fontSize = 14.sp, color = DarkText)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedTextField(
+                    value = userInput,
+                    onValueChange = { userInput = it },
+                    placeholder = { Text("How can I help you shop?", fontSize = 13.sp) },
+                    modifier = Modifier.fillMaxWidth().testTag("ai_assistant_input"),
+                    shape = RoundedCornerShape(12.dp),
+                    trailingIcon = {
+                        IconButton(onClick = { 
+                            if (userInput.isNotEmpty()) {
+                                viewModel.askAiAssistant(userInput)
+                                userInput = ""
+                            }
+                        }) {
+                            Icon(Icons.Filled.Send, contentDescription = "Send", tint = TemuOrangePrimary)
+                        }
+                    }
+                )
+                
+                TextButton(onClick = { 
+                    viewModel.clearAIResponse()
+                    onDismiss() 
+                }, modifier = Modifier.align(Alignment.End)) {
+                    Text("Close", color = Color.Gray)
                 }
             }
         }

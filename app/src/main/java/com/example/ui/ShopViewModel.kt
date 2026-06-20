@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.data.*
+import com.example.BuildConfig
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -21,6 +22,7 @@ enum class ShopScreen {
     ORDERS,
     CHAT,
     ADMIN_CHATS,
+    ADMIN_DASHBOARD,
     AUTH_SETTINGS
 }
 
@@ -43,7 +45,7 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
     val activeUser: StateFlow<LoginResponse?> = _activeUser.asStateFlow()
 
     // Remote integration configurations
-    private val _backendUrl = MutableStateFlow("http://10.0.2.2:3000")
+    private val _backendUrl = MutableStateFlow<String>(BuildConfig.SHOP_BACKEND_URL.ifEmpty { "http://10.0.2.2:3000" })
     val backendUrl: StateFlow<String> = _backendUrl.asStateFlow()
 
     private val _isConnectedToBackend = MutableStateFlow(false)
@@ -117,11 +119,66 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
     ) { products, query, cat ->
         products.filter { prod ->
             val matchesQuery = prod.name.contains(query, ignoreCase = true) || 
-                               prod.description.contains(query, ignoreCase = true)
+                               prod.description.contains(query, ignoreCase = true) ||
+                               prod.category.contains(query, ignoreCase = true)
             val matchesCategory = cat == "All" || prod.category.equals(cat, ignoreCase = true)
             matchesQuery && matchesCategory
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // --- AI LOGIC ---
+    private val geminiService = GeminiRetrofitClient.createService()
+    private val _aiAssistantResponse = MutableStateFlow<String?>(null)
+    val aiAssistantResponse: StateFlow<String?> = _aiAssistantResponse.asStateFlow()
+    private val _isAILoading = MutableStateFlow(false)
+    val isAILoading: StateFlow<Boolean> = _isAILoading.asStateFlow()
+    private val _showAIDialog = MutableStateFlow(false)
+    val showAIDialog: StateFlow<Boolean> = _showAIDialog.asStateFlow()
+
+    fun clearAIResponse() { _aiAssistantResponse.value = null }
+    fun setShowAIDialog(show: Boolean) { _showAIDialog.value = show }
+
+    fun askAiAssistant(userInput: String) {
+        _showAIDialog.value = true
+        val systemPrompt = """
+            You are a helpful and energetic shopping assistant for TEMU Shop. 
+            User's name: ${activeUser.value?.name ?: "Guest"}.
+            Current Products in DB: ${allProducts.value.joinToString { it.name }}
+            Categories: ${appConfig.value?.storeCategories ?: "General"}
+            Rules: Be concise, use emojis, and suggest specific products from the list if they match.
+        """.trimIndent()
+        askGemini(userInput, systemPrompt)
+    }
+
+    fun generateAIDescription(productName: String, category: String) {
+        val prompt = "Write a catchy, seductive, and professional e-commerce description for a product named '$productName' in the '$category' category. Keep it under 150 characters."
+        askGemini(prompt)
+    }
+
+    private fun askGemini(prompt: String, systemInstruction: String? = null) {
+        viewModelScope.launch {
+            _isAILoading.value = true
+            _aiAssistantResponse.value = null
+            val request = GeminiRequest(
+                contents = listOf(GeminiContent(parts = listOf(GeminiPart(text = prompt)))),
+                systemInstruction = systemInstruction?.let { GeminiContent(parts = listOf(GeminiPart(text = it))) }
+            )
+            try {
+                val apiKey = BuildConfig.GEMINI_API_KEY
+                if (apiKey.isEmpty()) {
+                    _aiAssistantResponse.value = "🤖 Please set GEMINI_API_KEY in the Secrets panel."
+                    return@launch
+                }
+                val response = geminiService.generateContent(apiKey, request)
+                _aiAssistantResponse.value = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+                    ?: "🤖 I'm a bit shy today. Could you repeat that?"
+            } catch (e: Exception) {
+                _aiAssistantResponse.value = "🤖 Error: ${e.message}"
+            } finally {
+                _isAILoading.value = false
+            }
+        }
+    }
 
     // Observe DB Cart Items and associate them with products
     val cartWithProducts: StateFlow<List<CartProductItem>> = combine(
@@ -153,6 +210,22 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
 
     val cartTotalPrice: StateFlow<Double> = cartWithProducts.map { items ->
         items.sumOf { it.totalDiscountedPrice }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    val loyaltyDiscountPercent: StateFlow<Int> = activeUserProfile.map { user ->
+        if (user == null) 0
+        else {
+            val count = user.purchaseCount
+            val spent = user.totalSpent
+            if (count >= 10 && spent > 500.0) 15 
+            else if (count >= 5 && spent > 200.0) 10 
+            else if (count >= 2) 5 
+            else 0
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val cartFinalPrice: StateFlow<Double> = combine(cartTotalPrice, loyaltyDiscountPercent) { price, discount ->
+        price * (1.0 - (discount / 100.0))
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
     // Observe Orders for real-time analytics calculations
@@ -236,12 +309,12 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
         _selectedCategory.value = category
     }
 
-    fun selectProduct(product: ProductEntity?) {
-        _selectedProduct.value = product
-    }
-
     fun setProductForEdit(product: ProductEntity?) {
         _productForEdit.value = product
+    }
+
+    fun selectProduct(product: ProductEntity?) {
+        _selectedProduct.value = product
     }
 
     // UI actions
@@ -296,8 +369,10 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
             val list = currentCart.map { it.product to it.quantity }
             val basePrice = cartTotalPrice.value
             val isCouponValid = couponCode.uppercase().trim() == "TEMUFLASHSALE40" || couponCode.uppercase().trim() == "WELCOME50"
-            val discountPercent = if (couponCode.uppercase().trim() == "TEMUFLASHSALE40") 40 else if (couponCode.uppercase().trim() == "WELCOME50") 20 else 0
-            val finalPrice = basePrice * (1.0 - (discountPercent / 100.0))
+            val couponDiscount = if (couponCode.uppercase().trim() == "TEMUFLASHSALE40") 40 else if (couponCode.uppercase().trim() == "WELCOME50") 20 else 0
+            val loyaltyDiscount = loyaltyDiscountPercent.value
+            val totalDiscountPercent = (couponDiscount + loyaltyDiscount).coerceAtMost(100)
+            val finalPrice = basePrice * (1.0 - (totalDiscountPercent / 100.0))
 
             if (payWithWallet) {
                 // Fetch profile
@@ -436,66 +511,6 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
         }
     }
 
-    fun restockProduct(product: ProductEntity, amount: Int) {
-        if (amount <= 0) return
-        viewModelScope.launch {
-            if (_isConnectedToBackend.value) {
-                try {
-                    val api = getApiService()
-                    val updated = product.copy(stockQuantity = product.stockQuantity + amount)
-                    api.updateProduct(product.id, updated)
-                    _checkoutSuccess.emit("Restocked on Server + $amount")
-                    repository.updateProduct(updated)
-                } catch (e: Exception) {
-                    _errorMessage.emit("Live Server update failed: ${e.message}")
-                }
-            } else {
-                val updated = product.copy(stockQuantity = product.stockQuantity + amount)
-                repository.updateProduct(updated)
-                _checkoutSuccess.emit("Restocked + $amount for ${product.name}")
-            }
-        }
-    }
-
-    fun deleteAdminProduct(product: ProductEntity) {
-        viewModelScope.launch {
-            if (_isConnectedToBackend.value) {
-                try {
-                    val api = getApiService()
-                    api.deleteProduct(product.id)
-                    repository.deleteProduct(product)
-                    _checkoutSuccess.emit("Removed item from Server!")
-                } catch (e: Exception) {
-                    _errorMessage.emit("Live Server deletion failed: ${e.message}")
-                }
-            } else {
-                repository.deleteProduct(product)
-                _checkoutSuccess.emit("Removed ${product.name} from Local Database.")
-            }
-        }
-    }
-
-    fun triggerReseed() {
-        viewModelScope.launch {
-            if (_isConnectedToBackend.value) {
-                try {
-                    val api = getApiService()
-                    api.reseedProducts()
-                    val products = api.getProducts()
-                    for (ent in products.map { it.toEntity() }) {
-                        repository.insertProduct(ent)
-                    }
-                    _checkoutSuccess.emit("Server Catalog fully reseeded & hydrated!")
-                } catch (e: Exception) {
-                    _errorMessage.emit("Live Server reseed failed: ${e.message}")
-                }
-            } else {
-                repository.seedDatabase()
-                _checkoutSuccess.emit("Local Database fully re-seeded.")
-            }
-        }
-    }
-
     // Dynamic Service Builder
     fun getApiService(): ShopApiService {
         return RetrofitClient.createService(_backendUrl.value)
@@ -534,6 +549,13 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
             try {
                 val api = getApiService()
                 val response = api.login(LoginRequest(emailStr, passwordStr))
+                if (response.suspicious == true) {
+                    _errorMessage.emit("Account flagged for suspicious activity. Verification needed. Re-login!")
+                    logout()
+                    onResult(false)
+                    return@launch
+                }
+                
                 _activeUser.value = response
                 _isConnectedToBackend.value = true
                 _checkoutSuccess.emit("Welcome back, ${response.name}!")
@@ -541,11 +563,20 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                 // Caching profile record in database with loaded remote balance
                 var remotePhone = ""
                 var remoteBalance = 150.00
+                var remoteSuspicious = false
                 try {
                     val profileRes = api.getRemoteUserProfile(response.email)
                     remotePhone = profileRes.phoneNumber
                     remoteBalance = profileRes.walletBalance
+                    remoteSuspicious = profileRes.suspicious == true
                 } catch (pe: Exception) {}
+
+                if (remoteSuspicious) {
+                    _errorMessage.emit("Account flagged for suspicious activity.")
+                    logout()
+                    onResult(false)
+                    return@launch
+                }
 
                 val localProfile = repository.getUserProfile(response.email).first()
                 if (localProfile == null) {
@@ -686,6 +717,7 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
         nameStr: String,
         roleStr: String,
         adminToken: String?,
+        referredBy: String?,
         onResult: (Boolean, String) -> Unit
     ) {
         viewModelScope.launch {
@@ -696,7 +728,7 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
             }
             try {
                 val api = getApiService()
-                val response = api.registerOtp(RegisterOtpRequest(emailStr, passwordStr, nameStr, roleStr, adminToken))
+                val response = api.registerOtp(RegisterOtpRequest(emailStr, passwordStr, nameStr, roleStr, adminToken, referredBy))
                 if (response.success) {
                     onResult(true, response.message)
                 } else {
@@ -811,7 +843,7 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
         }
     }
 
-    fun saveCustomBranding(brandName: String, brandColorHex: String, launcherName: String) {
+    fun saveCustomBranding(brandName: String, brandColorHex: String, launcherName: String, referralBonusAmount: Int = 20, storeCategories: String = "All,Fashion,Electronics,Home & Living,Beauty & Health,Toys & Games") {
         viewModelScope.launch {
             try {
                 val current = appConfig.value ?: AppConfigEntity(
@@ -826,7 +858,9 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                 val updated = current.copy(
                     customBrandName = brandName,
                     customBrandColorHex = brandColorHex,
-                    customLauncherName = launcherName
+                    customLauncherName = launcherName,
+                    referralBonusAmount = referralBonusAmount,
+                    storeCategories = storeCategories
                 )
                 
                 // Save locally first for dynamic reactivity
@@ -876,18 +910,25 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
         adText: String,
         flashSalesDiscount: Int,
         carouselEditableContent: String,
-        algoEnabled: Boolean
+        algoEnabled: Boolean,
+        storeCategories: String
     ) {
         viewModelScope.launch {
+            val current = appConfig.value
             val config = AppConfigEntity(
                 id = "globals",
                 sliderImages = sliderImages,
                 promoText = promoText,
                 adText = adText,
-                flashSalesEnds = System.currentTimeMillis() + 86400000L,
+                flashSalesEnds = current?.flashSalesEnds ?: (System.currentTimeMillis() + 86400000L),
                 flashSalesDiscount = flashSalesDiscount,
                 carouselEditableContent = carouselEditableContent,
-                algorithmicPromotionEnabled = algoEnabled
+                algorithmicPromotionEnabled = algoEnabled,
+                customBrandName = current?.customBrandName ?: "Temu",
+                customBrandColorHex = current?.customBrandColorHex ?: "#FFFF5000",
+                customLauncherName = current?.customLauncherName ?: "Temu Shop",
+                referralBonusAmount = current?.referralBonusAmount ?: 20,
+                storeCategories = storeCategories
             )
             repository.saveAppConfig(config)
             
@@ -1070,6 +1111,10 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                 if (_isConnectedToBackend.value) {
                     val api = getApiService()
                     val products = api.getProducts()
+                    
+                    // Optional: clear local products to ensure we only have server data in Online Mode
+                    // repository.clearAllProducts() // Assuming this exists or we add it
+                    
                     for (p in products) {
                         repository.insertProduct(p.toEntity())
                     }
@@ -1209,6 +1254,76 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
             repository.getChatHistory(userId).collect { list ->
                 _adminSelectedChatHistory.value = list
             }
+        }
+    }
+
+    fun createAdminProduct(product: ProductEntity) {
+        viewModelScope.launch {
+            if (_isConnectedToBackend.value) {
+                try {
+                    getApiService().createProduct(product)
+                    refreshProducts()
+                } catch (e: Exception) {
+                    repository.insertProduct(product.copy(id = System.currentTimeMillis()))
+                }
+            } else {
+                repository.insertProduct(product.copy(id = System.currentTimeMillis()))
+            }
+        }
+    }
+
+    fun updateAdminProduct(product: ProductEntity) {
+        viewModelScope.launch {
+            if (_isConnectedToBackend.value) {
+                try {
+                    getApiService().updateProduct(product.id, product)
+                    refreshProducts()
+                } catch (e: Exception) {
+                    repository.insertProduct(product)
+                }
+            } else {
+                repository.insertProduct(product)
+            }
+        }
+    }
+
+    fun deleteAdminProduct(product: ProductEntity) {
+        viewModelScope.launch {
+            if (_isConnectedToBackend.value) {
+                try {
+                    getApiService().deleteProduct(product.id)
+                    refreshProducts()
+                } catch (e: Exception) {
+                    repository.deleteProduct(product)
+                }
+            } else {
+                repository.deleteProduct(product)
+            }
+        }
+    }
+
+    fun restockProduct(product: ProductEntity, amount: Int) {
+        viewModelScope.launch {
+            val updated = product.copy(stockQuantity = product.stockQuantity + amount)
+            updateAdminProduct(updated)
+        }
+    }
+
+    fun triggerReseed() {
+        viewModelScope.launch {
+            if (_isConnectedToBackend.value) {
+                try {
+                    getApiService().reseedProducts()
+                    refreshProducts()
+                } catch (e: Exception) {}
+            }
+        }
+    }
+
+    private suspend fun refreshProducts() {
+        if (_isConnectedToBackend.value) {
+            val products = getApiService().getProducts()
+            products.map { it.toEntity() }.forEach { repository.insertProduct(it) }
         }
     }
 

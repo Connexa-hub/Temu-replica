@@ -20,7 +20,14 @@ data class LoginResponse(
     val email: String,
     val name: String,
     val role: String,
-    val token: String
+    val token: String,
+    val walletBalance: Double? = null,
+    val couponCount: Int? = null,
+    val purchaseCount: Int? = null,
+    val totalSpent: Double? = null,
+    val referralCode: String? = null,
+    val referralBonusEarned: Double? = null,
+    val suspicious: Boolean? = null
 )
 
 data class RegisterRequest(
@@ -28,7 +35,8 @@ data class RegisterRequest(
     val password: String,
     val name: String,
     val role: String = "user",
-    val adminToken: String? = null
+    val adminToken: String? = null,
+    val referredBy: String? = null
 )
 
 data class NetworkProduct(
@@ -129,7 +137,13 @@ data class ProfileSyncResponse(
     val name: String,
     val role: String,
     val phoneNumber: String,
-    val walletBalance: Double
+    val walletBalance: Double,
+    val couponCount: Int? = null,
+    val purchaseCount: Int? = null,
+    val totalSpent: Double? = null,
+    val referralCode: String? = null,
+    val referralBonusEarned: Double? = null,
+    val suspicious: Boolean? = null
 )
 
 data class UpdateProfileRequest(
@@ -154,7 +168,8 @@ data class RegisterOtpRequest(
     val password: String,
     val name: String,
     val role: String,
-    val adminToken: String?
+    val adminToken: String?,
+    val referredBy: String? = null
 )
 
 data class VerifyOtpRequest(
