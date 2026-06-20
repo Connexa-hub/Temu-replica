@@ -1470,6 +1470,12 @@ fun OrdersScreen(viewModel: ShopViewModel) {
 
     // Interactive Tracking Dialog
     selectedOrderForTracking?.let { order ->
+        val activeTracking by viewModel.activeOrderTracking.collectAsStateWithLifecycle()
+
+        LaunchedEffect(order.orderId) {
+            viewModel.fetchLiveOrderTracking(order.orderId)
+        }
+
         Dialog(onDismissRequest = { selectedOrderForTracking = null }) {
             Card(
                 shape = RoundedCornerShape(16.dp),
@@ -1503,9 +1509,24 @@ fun OrdersScreen(viewModel: ShopViewModel) {
                     )
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    TrackingCheckpoint(time = "Today", status = "In customs / Shipped from sorting hub", isDone = true)
-                    TrackingCheckpoint(time = "Yesterday", status = "Cleared warehouse terminal", isDone = true)
-                    TrackingCheckpoint(time = "2 Days ago", status = "Order packaged and processed", isDone = true)
+                    val trackingInfo = activeTracking
+                    if (trackingInfo == null || trackingInfo.orderId != order.orderId) {
+                        CircularProgressIndicator(
+                            color = TemuOrangePrimary,
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Retrieving live tracking telemetry...", fontSize = 11.sp, color = Color.Gray)
+                    } else {
+                        // Display the real dynamic checkpoints loaded from the backend
+                        trackingInfo.checkpoints.forEach { checkpoint ->
+                            TrackingCheckpoint(
+                                time = checkpoint.time,
+                                status = checkpoint.status,
+                                isDone = checkpoint.isDone
+                            )
+                        }
+                    }
 
                     Spacer(modifier = Modifier.height(20.dp))
                     Button(
@@ -2305,6 +2326,8 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
     var newPasswordInput by remember { mutableStateOf("") }
     var newPhoneInput by remember { mutableStateOf("") }
     var depositAmountInput by remember { mutableStateOf("") }
+    var showPaymentGatewayDialog by remember { mutableStateOf(false) }
+    var gatewayAmountToDeposit by remember { mutableStateOf(50.0) }
     
     var showDeveloperAccordion by remember { mutableStateOf(false) }
 
@@ -2362,6 +2385,8 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
 
                     Spacer(modifier = Modifier.height(20.dp))
 
+                    var adminSignUpTokenInput by remember { mutableStateOf("") }
+
                     if (isRegisterMode) {
                         OutlinedTextField(
                             value = nameInput,
@@ -2375,6 +2400,24 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                             )
                         )
                         Spacer(modifier = Modifier.height(10.dp))
+
+                        // Admin master credential gateway
+                        val isEmailAdmin = emailInput.lowercase().contains("admin") || emailInput.lowercase().endsWith("@admin.com")
+                        if (isEmailAdmin) {
+                            OutlinedTextField(
+                                value = adminSignUpTokenInput,
+                                onValueChange = { adminSignUpTokenInput = it },
+                                label = { Text("Admin Master Security Token") },
+                                placeholder = { Text("Enter token required for administrator privileges") },
+                                modifier = Modifier.fillMaxWidth().testTag("reg_admin_token_input"),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = TemuOrangePrimary,
+                                    unfocusedBorderColor = Color.LightGray
+                                )
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                        }
                     }
 
                     OutlinedTextField(
@@ -2409,7 +2452,13 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                         onClick = {
                             if (isRegisterMode) {
                                 val role = if (emailInput.lowercase().contains("admin") || emailInput.lowercase().endsWith("@admin.com")) "admin" else "user"
-                                viewModel.registerRemote(emailInput, passwordInput, nameInput.ifEmpty { "Default Buyer" }, role)
+                                viewModel.registerRemote(
+                                    emailStr = emailInput,
+                                    passwordStr = passwordInput,
+                                    nameStr = nameInput.ifEmpty { "Default Buyer" },
+                                    roleStr = role,
+                                    adminToken = if (role == "admin") adminSignUpTokenInput else null
+                                )
                             } else {
                                 viewModel.loginRemote(emailInput, passwordInput)
                             }
@@ -2568,7 +2617,8 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                                 Button(
                                     onClick = {
                                         val amt = depositAmountInput.toDoubleOrNull() ?: 50.0
-                                        viewModel.depositToWallet(amt)
+                                        gatewayAmountToDeposit = amt
+                                        showPaymentGatewayDialog = true
                                         depositAmountInput = ""
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = PositiveGreen),
@@ -2830,6 +2880,204 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                         ) {
                             Text("Android Localhost", fontSize = 11.sp)
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showPaymentGatewayDialog) {
+        var cardNumber by remember { mutableStateOf("") }
+        var cardExpiry by remember { mutableStateOf("") }
+        var cardCvc by remember { mutableStateOf("") }
+        var selectedGateway by remember { mutableStateOf("Stripe") }
+        var isProcessingPayment by remember { mutableStateOf(false) }
+        var paymentStatusMessage by remember { mutableStateOf<String?>(null) }
+
+        Dialog(onDismissRequest = { if (!isProcessingPayment) showPaymentGatewayDialog = false }) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                modifier = Modifier.fillMaxWidth().shadow(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Secure Gateway checkout",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Black,
+                            color = DarkText
+                        )
+                        IconButton(
+                            onClick = { showPaymentGatewayDialog = false },
+                            enabled = !isProcessingPayment
+                        ) {
+                            Icon(Icons.Filled.Close, contentDescription = null, tint = Color.Gray)
+                        }
+                    }
+                    
+                    Divider(color = Color(0xFFF1F1F1), thickness = 1.dp)
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Gateway options
+                    Text(
+                        "CHOOSE GATEWAY CHANNELS:",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.Gray,
+                        modifier = Modifier.align(Alignment.Start)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    val gateways = listOf("Stripe", "PayPal", "Paystack", "Flutterwave", "Razorpay")
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        gateways.forEach { gw ->
+                            val isChosen = selectedGateway == gw
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isChosen) TemuOrangePrimary.copy(alpha = 0.12f) else Color(0xFFF5F5F5))
+                                    .border(1.dp, if (isChosen) TemuOrangePrimary else Color.Transparent, RoundedCornerShape(8.dp))
+                                    .clickable { selectedGateway = gw }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Text(
+                                    gw,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isChosen) TemuOrangePrimary else Color.DarkGray
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Card preview decoration
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(130.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                Brush.linearGradient(
+                                    colors = listOf(Color(0xFF2C3E50), Color(0xFF3498DB))
+                                )
+                            )
+                            .padding(16.dp)
+                    ) {
+                        Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("SECURE COURIER CARD", color = Color.White.copy(alpha = 0.8f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Icon(Icons.Filled.Security, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                            }
+                            Text(
+                                cardNumber.ifEmpty { "••••  ••••  ••••  ••••" },
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.align(Alignment.Start)
+                            )
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Column {
+                                    Text("EXPIRY", color = Color.White.copy(alpha = 0.6f), fontSize = 8.sp)
+                                    Text(cardExpiry.ifEmpty { "MM/YY" }, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text("CVC/CVV", color = Color.White.copy(alpha = 0.6f), fontSize = 8.sp)
+                                    Text(cardCvc.ifEmpty { "•••" }, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    OutlinedTextField(
+                        value = cardNumber,
+                        onValueChange = { if (it.length <= 16) cardNumber = it.filter { char -> char.isDigit() } },
+                        label = { Text("16-Digit Card Number") },
+                        placeholder = { Text("4000 1234 5678 9010") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = TemuOrangePrimary)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = cardExpiry,
+                            onValueChange = { cardExpiry = it },
+                            label = { Text("Expiry (MM/YY)") },
+                            placeholder = { Text("12/28") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = TemuOrangePrimary)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        OutlinedTextField(
+                            value = cardCvc,
+                            onValueChange = { if (it.length <= 4) cardCvc = it.filter { char -> char.isDigit() } },
+                            label = { Text("CVV/CVC") },
+                            placeholder = { Text("123") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = TemuOrangePrimary)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    if (isProcessingPayment) {
+                        CircularProgressIndicator(color = TemuOrangePrimary, modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text("Resolving deposit with $selectedGateway gateway...", fontSize = 11.sp, color = Color.Gray)
+                    } else {
+                        Button(
+                            onClick = {
+                                if (cardNumber.length < 16) {
+                                    paymentStatusMessage = "Invalid card credentials. Must input a 16-digit card number"
+                                    return@Button
+                                }
+                                isProcessingPayment = true
+                                viewModel.depositToWalletSecure(
+                                    amount = gatewayAmountToDeposit,
+                                    cardNumber = cardNumber,
+                                    expiry = cardExpiry,
+                                    cvc = cardCvc,
+                                    gateway = selectedGateway
+                                ) { success, msg ->
+                                    isProcessingPayment = false
+                                    if (success) {
+                                        showPaymentGatewayDialog = false
+                                    } else {
+                                        paymentStatusMessage = msg
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = PositiveGreen),
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                            shape = RoundedCornerShape(24.dp)
+                        ) {
+                            Icon(Icons.Filled.OfflinePin, contentDescription = null, tint = Color.White)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Pay $${String.format("%.2f", gatewayAmountToDeposit)} securely", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    paymentStatusMessage?.let { err ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(err, color = AlertRed, fontSize = 11.sp, textAlign = TextAlign.Center)
                     }
                 }
             }

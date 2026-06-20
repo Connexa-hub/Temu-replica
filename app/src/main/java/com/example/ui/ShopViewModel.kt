@@ -30,6 +30,10 @@ data class DailySales(val dayStr: String, val amount: Double)
 
 class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
 
+    // Order tracking live details
+    private val _activeOrderTracking = MutableStateFlow<OrderTrackingResponse?>(null)
+    val activeOrderTracking: StateFlow<OrderTrackingResponse?> = _activeOrderTracking.asStateFlow()
+
     // Selected Navigation Tab
     private val _currentScreen = MutableStateFlow(ShopScreen.STORES)
     val currentScreen: StateFlow<ShopScreen> = _currentScreen.asStateFlow()
@@ -307,7 +311,7 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                     return@launch
                 }
 
-                // Deduct
+                // Deduct locally
                 val updatedProfile = profile.copy(
                     walletBalance = profile.walletBalance - finalPrice,
                     couponCount = if (isCouponValid) (profile.couponCount - 1).coerceAtLeast(0) else profile.couponCount,
@@ -321,11 +325,23 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                     val api = getApiService()
                     val req = OrderRequest(
                         totalAmount = finalPrice,
-                        items = currentCart.map { OrderItemRequest(it.product.id, it.quantity) }
+                        items = currentCart.map { OrderItemRequest(it.product.id, it.quantity) },
+                        userEmail = user.email,
+                        payWithWallet = payWithWallet
                     )
                     api.checkout(req)
                     repository.clearCart()
                     _checkoutSuccess.emit("Order Placed Successfully via Live Server! $${String.format("%.2f", finalPrice)} charged.")
+                    
+                    // Sync wallet balance response
+                    try {
+                        val profile = api.getRemoteUserProfile(user.email)
+                        val localProf = repository.getUserProfile(user.email).first()
+                        if (localProf != null) {
+                            repository.saveUserProfile(localProf.copy(walletBalance = profile.walletBalance))
+                        }
+                    } catch (ex: Exception) {}
+
                     syncAllData()
                 } catch (e: Exception) {
                     _errorMessage.emit("Server Error during Checkout: ${e.message}")
@@ -522,17 +538,32 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                 _isConnectedToBackend.value = true
                 _checkoutSuccess.emit("Welcome back, ${response.name}!")
                 
-                // Caching profile record in database
+                // Caching profile record in database with loaded remote balance
+                var remotePhone = ""
+                var remoteBalance = 150.00
+                try {
+                    val profileRes = api.getRemoteUserProfile(response.email)
+                    remotePhone = profileRes.phoneNumber
+                    remoteBalance = profileRes.walletBalance
+                } catch (pe: Exception) {}
+
                 val localProfile = repository.getUserProfile(response.email).first()
                 if (localProfile == null) {
                     repository.saveUserProfile(
                         UserProfileEntity(
                             email = response.email,
                             name = response.name,
-                            phoneNumber = "",
+                            phoneNumber = remotePhone,
                             passwordHash = passwordStr,
-                            walletBalance = 150.00,
+                            walletBalance = remoteBalance,
                             couponCount = 3
+                        )
+                    )
+                } else {
+                    repository.saveUserProfile(
+                        localProfile.copy(
+                            walletBalance = remoteBalance,
+                            phoneNumber = remotePhone.ifEmpty { localProfile.phoneNumber }
                         )
                     )
                 }
@@ -581,7 +612,7 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
         }
     }
 
-    fun registerRemote(emailStr: String, passwordStr: String, nameStr: String, roleStr: String) {
+    fun registerRemote(emailStr: String, passwordStr: String, nameStr: String, roleStr: String, adminToken: String? = null) {
         viewModelScope.launch {
             if (emailStr.isEmpty() || passwordStr.isEmpty() || nameStr.isEmpty()) {
                 _errorMessage.emit("All registration fields are required.")
@@ -589,7 +620,7 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
             }
             try {
                 val api = getApiService()
-                val response = api.register(RegisterRequest(emailStr, passwordStr, nameStr, roleStr))
+                val response = api.register(RegisterRequest(emailStr, passwordStr, nameStr, roleStr, adminToken))
                 _activeUser.value = response
                 _isConnectedToBackend.value = true
                 _checkoutSuccess.emit("Profile Registered and Connected!")
@@ -612,7 +643,7 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                 // Register offline in DB
                 val existing = repository.getUserProfile(emailStr).first()
                 if (existing != null) {
-                    _errorMessage.emit("Account with email $emailStr is already registered offline.")
+                    _errorMessage.emit("Account with email $emailStr is already registered offline. (${e.message ?: "Failed"})")
                 } else {
                     repository.saveUserProfile(
                         UserProfileEntity(
@@ -681,7 +712,139 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                 algorithmicPromotionEnabled = algoEnabled
             )
             repository.saveAppConfig(config)
-            _checkoutSuccess.emit("Dynamic storefront parameters updated in real-time!")
+            
+            if (_isConnectedToBackend.value) {
+                try {
+                    val api = getApiService()
+                    api.updateAppConfig(config)
+                    _checkoutSuccess.emit("Dynamic storefront live parameters synchronized to MongoDB & Cloud server!")
+                } catch (e: Exception) {
+                    _errorMessage.emit("Locally saved. Cloud appconfig synchronization failed: ${e.message}")
+                }
+            } else {
+                _checkoutSuccess.emit("Dynamic storefront parameters updated locally offline!")
+            }
+        }
+    }
+
+    fun updateProfileSecure(phoneNumber: String, newPasswordStr: String? = null) {
+        val user = _activeUser.value ?: return
+        viewModelScope.launch {
+            if (_isConnectedToBackend.value) {
+                try {
+                    val api = getApiService()
+                    val response = api.updateRemoteProfile(UpdateProfileRequest(user.email, newPasswordStr, phoneNumber))
+                    if (response.success) {
+                        val local = repository.getUserProfile(user.email).first()
+                        if (local != null) {
+                            repository.saveUserProfile(
+                                local.copy(
+                                    phoneNumber = phoneNumber,
+                                    passwordHash = newPasswordStr ?: local.passwordHash
+                                )
+                            )
+                        }
+                        _checkoutSuccess.emit("Profile details processed securely on server!")
+                    }
+                } catch (e: Exception) {
+                    _errorMessage.emit("Failed to update remote profile: ${e.message}")
+                }
+            } else {
+                val local = repository.getUserProfile(user.email).first()
+                if (local != null) {
+                    repository.saveUserProfile(
+                        local.copy(
+                            phoneNumber = phoneNumber,
+                            passwordHash = newPasswordStr ?: local.passwordHash
+                        )
+                    )
+                    _checkoutSuccess.emit("Profile updated in local offline database.")
+                }
+            }
+        }
+    }
+
+    fun fetchLiveOrderTracking(orderId: Long) {
+        viewModelScope.launch {
+            if (_isConnectedToBackend.value) {
+                try {
+                    val api = getApiService()
+                    val tracking = api.getOrderTracking(orderId)
+                    _activeOrderTracking.value = tracking
+                } catch (e: Exception) {
+                    generateLocalTrackingCheckpointsFallback(orderId)
+                }
+            } else {
+                generateLocalTrackingCheckpointsFallback(orderId)
+            }
+        }
+    }
+
+    private fun generateLocalTrackingCheckpointsFallback(orderId: Long) {
+        val checkpoints = listOf(
+            NetworkTrackingCheckpoint("Today", "Quality control inspection approved at local dispatch depot", true),
+            NetworkTrackingCheckpoint("Yesterday", "Order packaged, processed & logged in local SQLite DB", true)
+        )
+        _activeOrderTracking.value = OrderTrackingResponse(orderId, "Processed", checkpoints)
+    }
+
+    fun depositToWalletSecure(
+        amount: Double,
+        cardNumber: String,
+        expiry: String,
+        cvc: String,
+        gateway: String,
+        onCompleted: (Boolean, String) -> Unit
+    ) {
+        val user = _activeUser.value
+        if (user == null) {
+            onCompleted(false, "User not authenticated.")
+            return
+        }
+        if (amount <= 0.0) {
+            onCompleted(false, "Recharge amount must be greater than zero.")
+            return
+        }
+        viewModelScope.launch {
+            if (_isConnectedToBackend.value) {
+                try {
+                    val api = getApiService()
+                    val req = DepositRequest(
+                        email = user.email,
+                        amount = amount,
+                        cardNumber = cardNumber,
+                        cardExpiry = expiry,
+                        cardCvc = cvc,
+                        gateway = gateway
+                    )
+                    val response = api.depositFunds(req)
+                    if (response.success) {
+                        val localProfile = repository.getUserProfile(user.email).first()
+                        if (localProfile != null) {
+                            repository.saveUserProfile(localProfile.copy(walletBalance = response.newWalletBalance))
+                        }
+                        _checkoutSuccess.emit("Deposit of $${String.format("%.2f", amount)} Approved via ${gateway}!")
+                        onCompleted(true, "Payment successful! Receipt: ${response.receiptNo}")
+                    } else {
+                        _errorMessage.emit("Payment Rejected: ${response.message}")
+                        onCompleted(false, response.message)
+                    }
+                } catch (e: Exception) {
+                    _errorMessage.emit("Gateway Clearance Failed: ${e.message}")
+                    onCompleted(false, e.message ?: "Network Gateway error.")
+                }
+            } else {
+                // Offline Mode fallback
+                val profile = repository.getUserProfile(user.email).first()
+                if (profile != null) {
+                    val updated = profile.copy(walletBalance = profile.walletBalance + amount)
+                    repository.saveUserProfile(updated)
+                    _checkoutSuccess.emit("Sandbox recharge of $${String.format("%.2f", amount)} approved locally.")
+                    onCompleted(true, "Offline sandbox approval success.")
+                } else {
+                    onCompleted(false, "Offline profile not found.")
+                }
+            }
         }
     }
 
@@ -732,6 +895,10 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                     for (p in products) {
                         repository.insertProduct(p.toEntity())
                     }
+                    try {
+                        val cloudConfig = api.getAppConfig()
+                        repository.saveAppConfig(cloudConfig)
+                    } catch (e: Exception) {}
                 }
             } catch (e: Exception) {
                 // Fail silently

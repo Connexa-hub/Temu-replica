@@ -27,7 +27,8 @@ data class RegisterRequest(
     val email: String,
     val password: String,
     val name: String,
-    val role: String = "user"
+    val role: String = "user",
+    val adminToken: String? = null
 )
 
 data class NetworkProduct(
@@ -61,7 +62,9 @@ data class OrderItemRequest(
 
 data class OrderRequest(
     val totalAmount: Double,
-    val items: List<OrderItemRequest>
+    val items: List<OrderItemRequest>,
+    val userEmail: String? = null,
+    val payWithWallet: Boolean = false
 )
 
 data class NetworkOrder(
@@ -88,7 +91,57 @@ data class NetworkOrdersResponse(
 data class CheckoutResponse(
     val success: Boolean,
     val order: NetworkOrder,
-    val items: List<NetworkOrderItem>
+    val items: List<NetworkOrderItem>,
+    val walletDeducted: Boolean = false
+)
+
+data class DepositRequest(
+    val email: String,
+    val amount: Double,
+    val cardNumber: String,
+    val cardExpiry: String,
+    val cardCvc: String,
+    val gateway: String
+)
+
+data class DepositResponse(
+    val success: Boolean,
+    val message: String,
+    val receiptNo: String,
+    val gatewayStatus: String,
+    val newWalletBalance: Double
+)
+
+data class NetworkTrackingCheckpoint(
+    val time: String,
+    val status: String,
+    val isDone: Boolean
+)
+
+data class OrderTrackingResponse(
+    val orderId: Long,
+    val status: String,
+    val checkpoints: List<NetworkTrackingCheckpoint>
+)
+
+data class ProfileSyncResponse(
+    val email: String,
+    val name: String,
+    val role: String,
+    val phoneNumber: String,
+    val walletBalance: Double
+)
+
+data class UpdateProfileRequest(
+    val email: String,
+    val newPassword: String? = null,
+    val phoneNumber: String? = null
+)
+
+data class UpdateProfileResponse(
+    val success: Boolean,
+    val email: String,
+    val phoneNumber: String
 )
 
 data class ChatMessageRequest(
@@ -158,6 +211,24 @@ interface ShopApiService {
 
     @POST("api/chat/{userId}/message")
     suspend fun sendChatMessage(@Path("userId") userId: String, @Body message: ChatMessageRequest): ChatMessageResponse
+
+    @POST("api/payment/deposit")
+    suspend fun depositFunds(@Body request: DepositRequest): DepositResponse
+
+    @GET("api/orders/{id}/tracking")
+    suspend fun getOrderTracking(@Path("id") orderId: Long): OrderTrackingResponse
+
+    @GET("api/user/profile")
+    suspend fun getRemoteUserProfile(@Query("email") email: String): ProfileSyncResponse
+
+    @POST("api/user/profile/update")
+    suspend fun updateRemoteProfile(@Body request: UpdateProfileRequest): UpdateProfileResponse
+
+    @GET("api/appconfig")
+    suspend fun getAppConfig(): AppConfigEntity
+
+    @POST("api/appconfig")
+    suspend fun updateAppConfig(@Body request: AppConfigEntity): AppConfigEntity
 }
 
 // --- Dynamic Retrofit Factory ---
