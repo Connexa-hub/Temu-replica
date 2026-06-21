@@ -46,6 +46,7 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.ProductEntity
 import com.example.data.AppConfigEntity
+import com.example.data.BrandConfig
 import coil.compose.AsyncImage
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.foundation.text.KeyboardOptions
@@ -168,6 +169,7 @@ fun ShopAppShell(viewModel: ShopViewModel) {
                 when (currentScreen) {
                     ShopScreen.STORES -> StorefrontScreen(viewModel)
                     ShopScreen.CART -> CartScreen(viewModel)
+                    ShopScreen.WISHLIST -> WishlistScreen(viewModel)
                     ShopScreen.ORDERS -> OrdersScreen(viewModel)
                     ShopScreen.CHAT -> ChatSupportScreen(viewModel)
                     ShopScreen.ADMIN_CHATS, ShopScreen.ADMIN_DASHBOARD -> AdminDashboardScreen(viewModel)
@@ -275,6 +277,22 @@ fun BottomNavigationBar(
             )
 
             if (role != "admin" && activeUser != null) {
+                NavigationBarItem(
+                    selected = currentScreen == ShopScreen.WISHLIST,
+                    onClick = { 
+                        viewModel.fetchWishlist()
+                        onScreenSelect(ShopScreen.WISHLIST) 
+                    },
+                    icon = { Icon(Icons.Filled.Favorite, contentDescription = "Wishlist") },
+                    label = { Text("Wishlist", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = TemuOrangePrimary,
+                        selectedTextColor = TemuOrangePrimary,
+                        indicatorColor = TemuOrangePrimary.copy(alpha = 0.12f)
+                    ),
+                    modifier = Modifier.testTag("nav_tab_wishlist")
+                )
+
                 NavigationBarItem(
                     selected = currentScreen == ShopScreen.ORDERS,
                     onClick = { onScreenSelect(ShopScreen.ORDERS) },
@@ -434,7 +452,7 @@ fun StorefrontScreen(viewModel: ShopViewModel) {
     val brandSuggestions = listOf("Samsung", "Apple", "Nike", "Adidas", "L'Oreal", "Lego", "Dell", "Sony", "Gucci")
 
     // Dynamic countdown timer for Flash Sales
-    var secondsLeft by remember { mutableIntStateOf(10543) }
+    var secondsLeft by remember { mutableIntStateOf(36000) }
     LaunchedEffect(true) {
         while (secondsLeft > 0) {
             delay(1000L)
@@ -476,7 +494,7 @@ fun StorefrontScreen(viewModel: ShopViewModel) {
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            Icons.Filled.Store,
+                            Icons.Filled.AccountBalance,
                             contentDescription = null,
                             tint = TemuOrangePrimary,
                             modifier = Modifier.size(20.dp)
@@ -484,11 +502,11 @@ fun StorefrontScreen(viewModel: ShopViewModel) {
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        "TEMU",
+                        "MarketEdge Pro",
                         color = Color.White,
-                        fontSize = 22.sp,
+                        fontSize = 20.sp,
                         fontWeight = FontWeight.Black,
-                        letterSpacing = 1.sp
+                        letterSpacing = 0.5.sp
                     )
                 }
 
@@ -502,7 +520,7 @@ fun StorefrontScreen(viewModel: ShopViewModel) {
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        "Shop Like a Billionaire",
+                        "Market Edge Pro Solutions",
                         color = Color.White,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
@@ -1216,7 +1234,7 @@ fun CartScreen(viewModel: ShopViewModel) {
     var payWithWallet by remember { mutableStateOf(false) }
     var promoCodeInput by remember { mutableStateOf("") }
 
-    val couponDiscountPercent = if (promoCodeInput.uppercase().trim() == "TEMUFLASHSALE40") 40 else if (promoCodeInput.uppercase().trim() == "WELCOME50") 20 else 0
+    val couponDiscountPercent = if (promoCodeInput.uppercase().trim() == BrandConfig.COUPON_FLASHSALE) 40 else if (promoCodeInput.uppercase().trim() == BrandConfig.COUPON_WELCOME) 50 else 0
     val totalDiscountPercent = (couponDiscountPercent + loyaltyPercent).coerceAtMost(100)
     val combinedDiscountAmount = totalAmount - finalPrice
 
@@ -1423,7 +1441,7 @@ fun CartScreen(viewModel: ShopViewModel) {
                             OutlinedTextField(
                                 value = promoCodeInput,
                                 onValueChange = { promoCodeInput = it },
-                                placeholder = { Text("Code: e.g. TEMUFLASHSALE40", fontSize = 11.sp, color = Color.Gray) },
+                                placeholder = { Text("Code: e.g. ${BrandConfig.COUPON_FLASHSALE}", fontSize = 11.sp, color = Color.Gray) },
                                 label = { Text("Have a coupon/promo code?", fontSize = 10.sp) },
                                 modifier = Modifier.fillMaxWidth().height(48.dp),
                                 textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
@@ -1699,7 +1717,7 @@ fun OrdersScreen(viewModel: ShopViewModel) {
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        TopAppBarHeader("My Temu Orders")
+        TopAppBarHeader("My MarketEdge Orders")
 
         if (orders.isEmpty()) {
             Box(
@@ -1904,7 +1922,7 @@ fun OrdersScreen(viewModel: ShopViewModel) {
                         color = DarkText
                     )
                     Text(
-                        "Code: TEMU-${order.orderId + 84792}",
+                        "Code: MEP-${order.orderId + 84792}",
                         fontSize = 12.sp,
                         color = Color.Gray
                     )
@@ -1986,7 +2004,7 @@ fun OrderRowCard(
             ) {
                 Column {
                     Text(
-                        "Receipt #TEMU-${order.orderId + 84792}",
+                        "Receipt #MEP-${order.orderId + 84792}",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Black,
                         color = MaterialTheme.colorScheme.onSurface
@@ -2822,7 +2840,6 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
     // Auth screen states: "LOGIN", "REGISTER", "VERIFY_OTP", "FORGOT_PASSWORD", "RESET_PASSWORD"
     var authState by remember { mutableStateOf("LOGIN") }
 
-    var urlInput by remember { mutableStateOf(backendUrl) }
     var emailInput by remember { mutableStateOf("") }
     var passwordInput by remember { mutableStateOf("") }
     var nameInput by remember { mutableStateOf("") }
@@ -2843,6 +2860,7 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
     var brandNameInput by remember(brandName) { mutableStateOf(brandName) }
     var brandColorHexInput by remember(brandColorHex) { mutableStateOf(brandColorHex) }
     var launcherNameInput by remember(launcherName) { mutableStateOf(launcherName) }
+    var urlInput by remember(backendUrl) { mutableStateOf(backendUrl) }
     
     val appConfig by viewModel.appConfig.collectAsStateWithLifecycle()
     var referralBonusInput by remember(appConfig) { mutableStateOf(appConfig?.referralBonusAmount?.toString() ?: "20") }
@@ -3128,6 +3146,14 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                                 modifier = Modifier.fillMaxWidth().height(48.dp)
                             ) {
                                 Text("Verify & Activate Profile", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            TextButton(onClick = { 
+                                viewModel.resendRegisterOtp(emailInput) { success, msg ->
+                                    // Just show message
+                                }
+                            }) {
+                                Text("Resend OTP", fontSize = 12.sp, color = brandPrimaryColor)
                             }
                             Spacer(modifier = Modifier.height(12.dp))
                             TextButton(onClick = { authState = "REGISTER" }) {
@@ -3713,14 +3739,14 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                             
                             OutlinedButton(
                                 onClick = {
-                                    urlInput = "http://10.0.2.2:3000"
-                                    viewModel.updateBackendUrl("http://10.0.2.2:3000")
+                                    urlInput = "https://my-store-98y6.onrender.com"
+                                    viewModel.updateBackendUrl("https://my-store-98y6.onrender.com")
                                 },
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(8.dp),
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = brandPrimaryColor)
                             ) {
-                                Text("Android Localhost", fontSize = 11.sp)
+                                Text("Restore Default", fontSize = 11.sp)
                             }
                         }
                     }
@@ -4363,7 +4389,6 @@ fun AdminDashboardScreen(viewModel: ShopViewModel) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
                     .padding(16.dp)
             ) {
                 Text(
@@ -4383,155 +4408,115 @@ fun AdminDashboardScreen(viewModel: ShopViewModel) {
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Add New Global Product", fontWeight = FontWeight.Bold)
                 }
-                Text(
-                    "Deductions, restock items and seed operations directly on server catalog",
-                    fontSize = 10.sp,
-                    color = Color.Gray
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Analytics Card
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            "Analytics & Store Inventory",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            color = TemuOrangePrimary
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        val totalProducts = productsCatalog.size
-                        val totalStock = productsCatalog.sumOf { it.stockQuantity }
-                        val lowStockCount = lowStockProducts.size
-                        
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Column {
-                                Text("Total Products:", fontSize = 11.sp, color = Color.Gray)
-                                Text("$totalProducts", fontSize = 14.sp, fontWeight = FontWeight.Black, color = DarkText)
-                            }
-                            Column {
-                                Text("Inventory Count:", fontSize = 11.sp, color = Color.Gray)
-                                Text("$totalStock", fontSize = 14.sp, fontWeight = FontWeight.Black, color = DarkText)
-                            }
-                            Column(
-                                modifier = Modifier
-                                    .clickable { viewModel.toggleStockFilter() }
-                                    .padding(4.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text("Low Stock Alert:", fontSize = 11.sp, color = Color.Gray)
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        "$lowStockCount",
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Black,
-                                        color = if (lowStockCount > 0) AlertRed else PositiveGreen
-                                    )
-                                    if (stockFilterActive) {
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Icon(Icons.Default.FilterList, contentDescription = null, modifier = Modifier.size(12.dp), tint = AlertRed)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
                 
-                // Advanced User Control Card
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            "Advanced User Control",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            color = TemuOrangePrimary
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text("Search and manage customer accounts proactively.", fontSize = 10.sp, color = Color.Gray)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        
-                        var searchQuery by remember { mutableStateOf("") }
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            placeholder = { Text("Search User Email...", fontSize = 11.sp) },
-                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp),
-                            modifier = Modifier.fillMaxWidth().height(50.dp),
-                            trailingIcon = {
-                                IconButton(onClick = { /* Implement user search/ban later */ }) {
-                                    Icon(Icons.Filled.Search, contentDescription = null, Modifier.size(16.dp))
-                                }
-                            }
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Restock Deck Card
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            "Rapid Restock Controller",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            color = TemuOrangePrimary
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Row(
-                            modifier = Modifier
-                                .horizontalScroll(rememberScrollState())
-                                .fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            productsCatalog.forEach { prod ->
-                                Card(
-                                    modifier = Modifier
-                                        .width(180.dp)
-                                        .border(1.dp, Color.LightGray.copy(alpha = 0.5f), RoundedCornerShape(8.dp)),
-                                    colors = CardDefaults.cardColors(containerColor = Color.White)
-                                ) {
-                                    Column(modifier = Modifier.padding(8.dp)) {
-                                        Text(
-                                            prod.name,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 11.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Text("Price: \$${prod.price} | Stock: ${prod.stockQuantity}", fontSize = 10.sp, color = Color.Gray)
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Button(
-                                                onClick = { viewModel.restockProduct(prod, 10) },
-                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)),
-                                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                                                modifier = Modifier.weight(1f)
-                                                    .height(28.dp)
-                                            ) {
-                                                Text("+10 Unit", fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                                            }
-                                            IconButton(
-                                                onClick = { viewModel.deleteAdminProduct(prod) },
-                                                modifier = Modifier.size(28.dp)
-                                                    .background(Color.Red.copy(alpha = 0.1f), CircleShape)
-                                            ) {
-                                                Icon(Icons.Filled.Delete, contentDescription = null, tint = Color.Red, modifier = Modifier.size(14.dp))
+                // Content List
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = 16.dp)
+                ) {
+                    item {
+                        // Analytics Card
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text("Analytics & Store Inventory", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TemuOrangePrimary)
+                                Spacer(modifier = Modifier.height(6.dp))
+                                val totalProducts = productsCatalog.size
+                                val totalStock = productsCatalog.sumOf { it.stockQuantity }
+                                val lowStockCount = lowStockProducts.size
+                                
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Column {
+                                        Text("Total Products:", fontSize = 11.sp, color = Color.Gray)
+                                        Text("$totalProducts", fontSize = 14.sp, fontWeight = FontWeight.Black, color = DarkText)
+                                    }
+                                    Column {
+                                        Text("Inventory Count:", fontSize = 11.sp, color = Color.Gray)
+                                        Text("$totalStock", fontSize = 14.sp, fontWeight = FontWeight.Black, color = DarkText)
+                                    }
+                                    Column(
+                                        modifier = Modifier
+                                            .clickable { viewModel.toggleStockFilter() }
+                                            .padding(4.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text("Low Stock Alert:", fontSize = 11.sp, color = Color.Gray)
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                "$lowStockCount",
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Black,
+                                                color = if (lowStockCount > 0) AlertRed else PositiveGreen
+                                            )
+                                            if (stockFilterActive) {
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Icon(Icons.Default.FilterList, contentDescription = null, modifier = Modifier.size(12.dp), tint = AlertRed)
                                             }
                                         }
                                     }
                                 }
                             }
                         }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        // Filters - Search and Category/Brand are already added above in previous step, so we need to put them in the item.
+                        // I will put them here later or just rely on the filters already added above the LazyColumn. 
+                        // Wait, I added them above the LazyColumn, which is fine, they don't need to be in the LazyColumn.
+                    }
+                    
+                    items(productsCatalog) { prod ->
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(1.dp, Color.LightGray.copy(alpha = 0.5f), RoundedCornerShape(8.dp)),
+                            colors = CardDefaults.cardColors(containerColor = Color.White)
+                        ) {
+                            Row(modifier = Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                // Image
+                                AsyncImage(model = prod.imageUrl, contentDescription = null, modifier = Modifier.size(50.dp).clip(RoundedCornerShape(8.dp)))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(prod.name, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text("Brand: ${prod.brand} | Category: ${prod.category}", fontSize = 10.sp, color = Color.Gray)
+                                    Text("Price: \$${prod.price} | Stock: ${prod.stockQuantity}", fontSize = 10.sp, color = Color.DarkGray)
+                                }
+                                // Delete Action
+                                IconButton(
+                                    onClick = { viewModel.deleteAdminProduct(prod) },
+                                    modifier = Modifier.background(Color.Red.copy(alpha = 0.1f), CircleShape).size(32.dp)
+                                ) {
+                                    Icon(Icons.Filled.Delete, contentDescription = null, tint = Color.Red, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
                     }
                 }
+
+                // Storefront Configuration
+                val appConfig by viewModel.appConfig.collectAsStateWithLifecycle()
+                var promoText by remember(appConfig) { mutableStateOf(appConfig?.promoText ?: "") }
+                var adText by remember(appConfig) { mutableStateOf(appConfig?.adText ?: "") }
+                var sliderImages by remember(appConfig) { mutableStateOf(appConfig?.sliderImages ?: "") }
+
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("Storefront Configuration", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TemuOrangePrimary)
+                        OutlinedTextField(value = promoText, onValueChange = { promoText = it }, label = { Text("Promo Text") }, modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(value = adText, onValueChange = { adText = it }, label = { Text("Ad Text") }, modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(value = sliderImages, onValueChange = { sliderImages = it }, label = { Text("Slider Images (comma-separated tokens)") }, modifier = Modifier.fillMaxWidth())
+                        Button(
+                            onClick = { 
+                                appConfig?.let {
+                                    viewModel.updateAppConfig(sliderImages, promoText, adText, it.flashSalesDiscount, it.carouselEditableContent, it.algorithmicPromotionEnabled, it.storeCategories)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                        ) {
+                            Text("Save Storefront Settings")
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -4748,6 +4733,92 @@ fun AIAssistantDialog(viewModel: ShopViewModel, onDismiss: () -> Unit) {
                     onDismiss() 
                 }, modifier = Modifier.align(Alignment.End)) {
                     Text("Close", color = Color.Gray)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun WishlistScreen(viewModel: ShopViewModel) {
+    val wishlistIds by viewModel.wishlistProductIds.collectAsStateWithLifecycle()
+    val allProducts by viewModel.allProducts.collectAsStateWithLifecycle()
+    val wishlistItems = allProducts.filter { wishlistIds.contains(it.id) }
+    val brandName by viewModel.currentBrandName.collectAsStateWithLifecycle()
+
+    Column(modifier = Modifier.fillMaxSize().background(RetailBackground)) {
+        TopAppBarHeader("MarketEdge Selection")
+        
+        if (wishlistItems.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        Icons.Default.FavoriteBorder, 
+                        contentDescription = null, 
+                        modifier = Modifier.size(72.dp), 
+                        tint = Color.LightGray.copy(alpha = 0.5f)
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Text("Your curated selection is empty", fontWeight = FontWeight.Bold, color = Color.Gray)
+                    Text("Save enterprise products you follow here", color = Color.LightGray, fontSize = 12.sp)
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(wishlistItems) { product ->
+                    Card(
+                        onClick = { viewModel.selectProduct(product) },
+                        modifier = Modifier.fillMaxWidth().shadow(2.dp, RoundedCornerShape(12.dp)),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.White)
+                    ) {
+                        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(80.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color.Gray.copy(alpha = 0.05f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    getProductCategoryIcon(product.category), 
+                                    contentDescription = null,
+                                    tint = getProductCategoryColor(product.category),
+                                    modifier = Modifier.size(40.dp)
+                                )
+                            }
+                            Spacer(Modifier.width(16.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    product.name, 
+                                    fontWeight = FontWeight.Bold, 
+                                    fontSize = 15.sp,
+                                    maxLines = 1, 
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = DarkText
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    "$${String.format("%.2f", product.price)}", 
+                                    color = TemuOrangePrimary, 
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 16.sp
+                                )
+                                Text(
+                                    product.category,
+                                    fontSize = 10.sp,
+                                    color = Color.Gray
+                                )
+                            }
+                            IconButton(onClick = { viewModel.toggleWishlist(product.id) }) {
+                                Icon(Icons.Default.Favorite, contentDescription = "Remove", tint = TemuOrangePrimary)
+                            }
+                        }
+                    }
                 }
             }
         }

@@ -6,8 +6,11 @@ const rateLimit = require('express-rate-limit');
 const fs = require('fs');
 const path = require('path');
 const mongoose = require('mongoose');
-
-const app = express();
+const Mailjet = require('node-mailjet');
+const mailjet = Mailjet.apiConnect(
+    process.env.MAILJET_API_KEY,
+    process.env.MAILJET_SECRET_KEY
+);
 const PORT = process.env.PORT || 3000;
 const DB_FILE = path.join(__dirname, 'db.json');
 const ADMIN_SIGNUP_TOKEN = process.env.ADMIN_SIGNUP_TOKEN || "ADMIN_MASTER_SECRET_2026";
@@ -135,8 +138,22 @@ const chatMessageSchema = new mongoose.Schema({
   timestamp: { type: Number, required: true }
 });
 
+const reviewSchema = new mongoose.Schema({
+  productId: { type: Number, required: true },
+  userEmail: { type: String, required: true },
+  userName: { type: String, required: true },
+  rating: { type: Number, required: true, min: 1, max: 5 },
+  comment: { type: String, default: '' },
+  timestamp: { type: Number, default: Date.now }
+});
+
+const wishlistSchema = new mongoose.Schema({
+  userEmail: { type: String, required: true },
+  productIds: [{ type: Number }]
+});
+
 // Mongoose Models
-let User, Product, Order, OrderItem, AppConfig, ChatMessage;
+let User, Product, Order, OrderItem, AppConfig, ChatMessage, Review, Wishlist;
 
 if (MONGO_URI) {
   mongoose.connect(MONGO_URI)
@@ -149,6 +166,8 @@ if (MONGO_URI) {
       OrderItem = mongoose.model('OrderItem', orderItemSchema);
       AppConfig = mongoose.model('AppConfig', appConfigSchema);
       ChatMessage = mongoose.model('ChatMessage', chatMessageSchema);
+      Review = mongoose.model('Review', reviewSchema);
+      Wishlist = mongoose.model('Wishlist', wishlistSchema);
       seedMongoIfEmpty();
     })
     .catch(err => {
@@ -274,15 +293,29 @@ async function saveNewUser(userData) {
 }
 
 // ---------------------------------------------------------------------
-// TRANSIENT STORAGE & SENDGRID EMAIL DELIVERY INTEGRATION
+// TRANSIENT STORAGE & MAILJET EMAIL DELIVERY INTEGRATION
 // ---------------------------------------------------------------------
-const pendingRegistrations = new Map();
 const pendingResets = new Map();
-const https = require('https');
 
-function sendEmail({ to, subject, htmlContent }) {
-  const apiKey = process.env.SENDGRID_API_KEY;
-  const sender = process.env.SENDGRID_SENDER_EMAIL || "no-reply@temushop.com";
+// Persistent OTP Schema (Enterprise Upgrade)
+const otpSchema = new mongoose.Schema({
+  email: { type: String, required: true, unique: true, lowercase: true },
+  password: { type: String, required: true },
+  name: { type: String, required: true },
+  role: { type: String, default: 'user' },
+  referredBy: { type: String, default: null },
+  otp: { type: String, required: true },
+  expiresAt: { type: Date, required: true }
+});
+
+let PendingRegistration;
+if (MONGO_URI) {
+  PendingRegistration = mongoose.model('PendingRegistration', otpSchema);
+}
+
+async function sendEmail({ to, subject, htmlContent }) {
+  const sender = process.env.MAILJET_SENDER_EMAIL || "support@marketedge.pro";
+  const senderName = process.env.MAILJET_SENDER_NAME || "MarketEdge Pro Support";
 
   // Always log to node console for easy logs inspection
   console.log(`=======================================================`);
@@ -291,55 +324,79 @@ function sendEmail({ to, subject, htmlContent }) {
   console.log(`[BODY]:\n${htmlContent}`);
   console.log(`=======================================================`);
 
-  if (!apiKey) {
-    console.log("[EMAIL MANAGER] No SENDGRID_API_KEY detected. Dispatched directly to server log terminal for local testing.");
-    return Promise.resolve(true);
+  if (!process.env.MAILJET_API_KEY || !process.env.MAILJET_SECRET_KEY) {
+    console.log("[EMAIL MANAGER] No MAILJET_API_KEY or MAILJET_SECRET_KEY detected.");
+    return true; // Keep true to avoid blocking flow
   }
 
-  const postData = JSON.stringify({
-    personalizations: [{ to: [{ email: to }] }],
-    from: { email: sender, name: "Secure Shop Support" },
-    subject: subject,
-    content: [{ type: "text/html", value: htmlContent }]
-  });
-
-  return new Promise((resolve) => {
-    const req = https.request({
-      hostname: 'api.sendgrid.com',
-      path: '/v3/mail/send',
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(postData)
-      }
-    }, (res) => {
-      let responseBody = '';
-      res.on('data', (chunk) => responseBody += chunk);
-      res.on('end', () => {
-        if (res.statusCode >= 200 && res.statusCode < 300) {
-          console.log(`[EMAIL MANAGER] SendGrid successfully sent email to ${to}`);
-          resolve(true);
-        } else {
-          console.error(`[EMAIL MANAGER] SendGrid failed (${res.statusCode}): ${responseBody}`);
-          resolve(false);
-        }
+  try {
+    const request = mailjet
+      .post("send", {'version': 'v3.1'})
+      .request({
+        "Messages":[
+          {
+            "From": {
+              "Email": sender,
+              "Name": senderName
+            },
+            "To": [
+              {
+                "Email": to,
+                "Name": "User"
+              }
+            ],
+            "Subject": subject,
+            "HTMLPart": htmlContent
+          }
+        ]
       });
-    });
-
-    req.on('error', (err) => {
-      console.error(`[EMAIL MANAGER] Network error during SendGrid post:`, err);
-      resolve(false);
-    });
-
-    req.write(postData);
-    req.end();
-  });
+    const result = await request;
+    console.log(`[EMAIL MANAGER] Mailjet successfully sent email:`, result.body);
+    return true;
+  } catch (error) {
+    console.error(`[EMAIL MANAGER] Mailjet failed:`, error.statusCode, error.message);
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------
-// NEW PASSWORD RESET & OTP REGISTER ENDPOINTS
+// OTP HANDLERS & ENTERPRISE AUTH
 // ---------------------------------------------------------------------
+
+// Helper: Store OTP (Persistent or Memory)
+async function storePendingRegistration(data) {
+  const key = data.email.toLowerCase().trim();
+  if (isMongoConnected && PendingRegistration) {
+    await PendingRegistration.findOneAndUpdate(
+      { email: key },
+      { ...data, email: key },
+      { upsert: true, new: true }
+    );
+  } else {
+    // Fallback to memory for local dev if mongo fails
+    if (!global.pendingRegistrationsMemory) global.pendingRegistrationsMemory = new Map();
+    global.pendingRegistrationsMemory.set(key, data);
+  }
+}
+
+async function getPendingRegistration(email) {
+  const key = email.toLowerCase().trim();
+  if (isMongoConnected && PendingRegistration) {
+    return await PendingRegistration.findOne({ email: key });
+  } else {
+    if (!global.pendingRegistrationsMemory) return null;
+    return global.pendingRegistrationsMemory.get(key);
+  }
+}
+
+async function deletePendingRegistration(email) {
+  const key = email.toLowerCase().trim();
+  if (isMongoConnected && PendingRegistration) {
+    await PendingRegistration.deleteOne({ email: key });
+  } else {
+    if (global.pendingRegistrationsMemory) global.pendingRegistrationsMemory.delete(key);
+  }
+}
 
 app.post('/api/auth/register-otp', async (req, res) => {
   const { email, password, name, role, adminToken, referredBy } = req.body;
@@ -362,52 +419,20 @@ app.post('/api/auth/register-otp', async (req, res) => {
       return res.status(400).json({ error: 'Email account is already registered.' });
     }
 
-    // Role Escalation Protection: Require Token if role is admin or if email contains admin keyword/domain
     let finalRole = role || 'user';
-    const isTryingToBeAdmin = finalRole === 'admin' || email.toLowerCase().includes('admin') || email.toLowerCase().endsWith('.admin.com');
+    const isTryingToBeAdmin = finalRole === 'admin' || email.toLowerCase().includes('admin');
     
     if (isTryingToBeAdmin) {
       if (!adminToken || adminToken !== ADMIN_SIGNUP_TOKEN) {
-        return res.status(403).json({ 
-          error: 'Forbidden: Valid Merchant/Admin Setup Key (adminToken) is required to register with administrator authorization.' 
-        });
+        return res.status(403).json({ error: 'Forbidden: Admin Setup Key required.' });
       }
       finalRole = 'admin';
-    } else {
-      finalRole = 'user';
     }
 
-    // Auto-verify if admin with valid token
-    const isVerifiedAdmin = (finalRole === 'admin' && adminToken === ADMIN_SIGNUP_TOKEN);
-
-    if (isVerifiedAdmin) {
-      const newUser = await saveNewUser({
-        email,
-        password,
-        name,
-        role: finalRole,
-        referredBy: referredBy || null,
-        phoneNumber: '+1-555-019-2831',
-        walletBalance: 120.00,
-        couponCount: 3
-      });
-
-      return res.status(201).json({
-        success: true,
-        email: newUser.email,
-        name: newUser.name,
-        role: newUser.role,
-        token: `JWT_SECURE_TOKEN_FOR_${newUser.role.toUpperCase()}`,
-        message: "Administrator account verified and created successfully."
-      });
-    }
-
-    // Generate random 6 Digit OTP code
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiry = Date.now() + 15 * 60 * 1000; // 15 mins
+    const expiry = Date.now() + 15 * 60 * 1000;
 
-    // Store in transient map
-    pendingRegistrations.set(email.toLowerCase().trim(), {
+    await storePendingRegistration({
       email,
       password,
       name,
@@ -417,66 +442,185 @@ app.post('/api/auth/register-otp', async (req, res) => {
       expiresAt: expiry
     });
 
-    // Send email via SendGrid
-    const emailHeader = `<h2>Welcome to our Secure Store!</h2>`;
-    const emailBody = `<p>Hi ${name},</p><p>Thank you for registering. To confirm your account and activate your profile, please enter this 6-digit verification code:</p><h3>${otp}</h3><p>This OTP will expire in 15 minutes.</p>`;
+    const emailBody = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee;">
+        <h2 style="color: #1A73E8;">Activate Your MarketEdge Pro Profile</h2>
+        <p>Hi ${name},</p>
+        <p>Thank you for choosing MarketEdge Pro. To finalize your enterprise buyer account, please use the following 6-digit verification code:</p>
+        <div style="background: #f4f4f4; padding: 15px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px; color: #1A73E8;">
+          ${otp}
+        </div>
+        <p>This code expires in 15 minutes. If you did not request this, please ignore this email.</p>
+        <hr>
+        <p style="font-size: 12px; color: #777;">MarketEdge Pro Enterprise Solutions</p>
+      </div>
+    `;
+
     await sendEmail({
       to: email,
-      subject: "Activate Your Secure Buyer Account - OTP Code",
-      htmlContent: emailHeader + emailBody
+      subject: "Verification Required: MarketEdge Pro Account Activation",
+      htmlContent: emailBody
     });
 
-    res.json({ success: true, message: "A 6-digit verification code has been dispatched to your email address." });
+    res.json({ success: true, message: "A secure verification code has been dispatched to your email." });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to initiate OTP code generation.' });
+    res.status(500).json({ error: 'System error during OTP generation.' });
   }
 });
 
-app.post('/api/auth/verify-otp', async (req, res) => {
-  const { email, otp } = req.body;
-  if (!email || !otp) {
-    return res.status(400).json({ error: 'Email and OTP verification code are required.' });
-  }
-
-  const key = email.toLowerCase().trim();
-  const pending = pendingRegistrations.get(key);
-
-  if (!pending) {
-    return res.status(404).json({ error: 'No active registration found for this email address. Please register again.' });
-  }
-
-  if (pending.otp !== otp.trim()) {
-    return res.status(400).json({ error: 'Invalid verification OTP code. Please try again.' });
-  }
-
-  if (Date.now() > pending.expiresAt) {
-    pendingRegistrations.delete(key);
-    return res.status(410).json({ error: 'Verification OTP code has expired. Please register again to generate a new code.' });
-  }
+app.post('/api/auth/resend-otp', async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email is required.' });
 
   try {
-    const newUser = await saveNewUser({
+    const pending = await getPendingRegistration(email);
+    if (!pending) return res.status(404).json({ error: 'No active registration found.' });
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiry = Date.now() + 15 * 60 * 1000;
+
+    const updatedData = {
       email: pending.email,
       password: pending.password,
       name: pending.name,
       role: pending.role,
       referredBy: pending.referredBy,
-      phoneNumber: '+1-555-019-2831',
-      walletBalance: 120.00,
-      couponCount: 3
+      otp,
+      expiresAt: expiry
+    };
+    await storePendingRegistration(updatedData);
+
+    const emailBody = `<p>Your new verification code is: <b>${otp}</b></p>`;
+    await sendEmail({
+      to: email,
+      subject: "Resend: Verification Code",
+      htmlContent: emailBody
     });
 
-    pendingRegistrations.delete(key);
-
-    res.status(201).json({
-      email: newUser.email,
-      name: newUser.name,
-      role: newUser.role,
-      token: `JWT_SECURE_TOKEN_FOR_${newUser.role.toUpperCase()}`
-    });
+    res.json({ success: true, message: "New code sent." });
   } catch (err) {
-    res.status(500).json({ error: 'Registration failed during database write. Please try again.' });
+    res.status(500).json({ error: 'Resend failed.' });
+  }
+});
+
+app.post('/api/auth/verify-otp', async (req, res) => {
+  const { email, otp } = req.body;
+  if (!email || !otp) return res.status(400).json({ error: 'Email and OTP required.' });
+
+  try {
+    const pending = await getPendingRegistration(email);
+    if (!pending) return res.status(404).json({ error: 'Session expired.' });
+
+    if (pending.otp !== otp.trim()) return res.status(400).json({ error: 'Invalid OTP.' });
+    if (Date.now() > pending.expiresAt) {
+      await deletePendingRegistration(email);
+      return res.status(410).json({ error: 'OTP expired.' });
+    }
+
+    const newUser = await saveNewUser({
+      email: pending.email,
+      password: pending.password,
+      name: pending.name,
+      role: pending.role,
+      referredBy: pending.referredBy
+    });
+
+    await deletePendingRegistration(email);
+    res.status(201).json({ email: newUser.email, name: newUser.name, role: newUser.role, token: 'JWT_PRO_' + Date.now() });
+  } catch (err) {
+    res.status(500).json({ error: 'Verification failed.' });
+  }
+});
+
+// ---------------------------------------------------------------------
+// ADVANCED FEATURES: WISHLIST & REVIEWS
+// ---------------------------------------------------------------------
+
+app.post('/api/products/review', async (req, res) => {
+  const { productId, userEmail, userName, rating, comment } = req.body;
+  if (!productId || !userEmail || !rating) return res.status(400).json({ error: 'Missing review fields.' });
+
+  try {
+    if (isMongoConnected) {
+      const review = await Review.create({ productId, userEmail, userName, rating, comment });
+      res.status(201).json(review);
+    } else {
+      const review = { productId, userEmail, userName, rating, comment, timestamp: Date.now() };
+      if (!localDb.reviews) localDb.reviews = [];
+      localDb.reviews.push(review);
+      saveLocalDatabase();
+      res.status(201).json(review);
+    }
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to post review.' });
+  }
+});
+
+app.get('/api/products/:id/reviews', async (req, res) => {
+  const pid = Number(req.params.id);
+  try {
+    if (isMongoConnected) {
+      const reviews = await Review.find({ productId: pid }).sort({ timestamp: -1 });
+      res.json(reviews);
+    } else {
+      const reviews = (localDb.reviews || []).filter(r => r.productId === pid);
+      res.json(reviews);
+    }
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch reviews.' });
+  }
+});
+
+app.post('/api/wishlist/toggle', async (req, res) => {
+  const { email, productId } = req.body;
+  if (!email || !productId) return res.status(400).json({ error: 'Email and Product ID required.' });
+
+  try {
+    if (isMongoConnected) {
+      let wl = await Wishlist.findOne({ userEmail: email.toLowerCase() });
+      if (!wl) {
+        wl = await Wishlist.create({ userEmail: email.toLowerCase(), productIds: [productId] });
+      } else {
+        const idx = wl.productIds.indexOf(productId);
+        if (idx > -1) wl.productIds.splice(idx, 1);
+        else wl.productIds.push(productId);
+        await wl.save();
+      }
+      res.json(wl);
+    } else {
+      if (!localDb.wishlists) localDb.wishlists = [];
+      let wl = localDb.wishlists.find(w => w.userEmail === email.toLowerCase());
+      if (!wl) {
+        wl = { userEmail: email.toLowerCase(), productIds: [productId] };
+        localDb.wishlists.push(wl);
+      } else {
+        const idx = wl.productIds.indexOf(productId);
+        if (idx > -1) wl.productIds.splice(idx, 1);
+        else wl.productIds.push(productId);
+      }
+      saveLocalDatabase();
+      res.json(wl);
+    }
+  } catch (err) {
+    res.status(500).json({ error: 'Wishlist toggle failed.' });
+  }
+});
+
+app.get('/api/wishlist', async (req, res) => {
+  const { email } = req.query;
+  if (!email) return res.status(400).json({ error: 'Email required.' });
+
+  try {
+    if (isMongoConnected) {
+      const wl = await Wishlist.findOne({ userEmail: email.toString().toLowerCase() });
+      res.json(wl ? wl.productIds : []);
+    } else {
+      const wl = (localDb.wishlists || []).find(w => w.userEmail === email.toString().toLowerCase());
+      res.json(wl ? wl.productIds : []);
+    }
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch wishlist.' });
   }
 });
 

@@ -183,6 +183,37 @@ data class VerifyOtpRequest(
     val otp: String
 )
 
+data class ResendOtpRequest(
+    val email: String
+)
+
+data class ReviewRequest(
+    val productId: Int,
+    val userEmail: String,
+    val userName: String,
+    val rating: Int,
+    val comment: String
+)
+
+data class WishlistToggleRequest(
+    val email: String,
+    val productId: Int
+)
+
+data class Review(
+    val productId: Int,
+    val userEmail: String,
+    val userName: String,
+    val rating: Int,
+    val comment: String,
+    val timestamp: Long
+)
+
+data class WishlistResponse(
+    val userEmail: String,
+    val productIds: List<Int>
+)
+
 data class ForgotPasswordRequest(
     val email: String
 )
@@ -282,6 +313,9 @@ interface ShopApiService {
     @POST("api/auth/register-otp")
     suspend fun registerOtp(@Body request: RegisterOtpRequest): GenericMsgResponse
 
+    @POST("api/auth/resend-otp")
+    suspend fun resendOtp(@Body request: ResendOtpRequest): GenericMsgResponse
+
     @POST("api/auth/verify-otp")
     suspend fun verifyOtp(@Body request: VerifyOtpRequest): LoginResponse
 
@@ -290,6 +324,19 @@ interface ShopApiService {
 
     @POST("api/auth/reset-password")
     suspend fun resetPassword(@Body request: ResetPasswordRequest): GenericMsgResponse
+
+    // Features
+    @POST("api/products/review")
+    suspend fun postReview(@Body request: ReviewRequest): Review
+
+    @GET("api/products/{id}/reviews")
+    suspend fun getReviews(@Path("id") productId: Int): List<Review>
+
+    @POST("api/wishlist/toggle")
+    suspend fun toggleWishlist(@Body request: WishlistToggleRequest): WishlistResponse
+
+    @GET("api/wishlist")
+    suspend fun getWishlist(@Query("email") email: String): List<Int>
 }
 
 // --- Dynamic Retrofit Factory ---

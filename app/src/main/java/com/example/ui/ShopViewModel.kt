@@ -19,6 +19,7 @@ data class CartProductItem(
 enum class ShopScreen {
     STORES,
     CART,
+    WISHLIST,
     ORDERS,
     CHAT,
     ADMIN_CHATS,
@@ -40,12 +41,53 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
     private val _currentScreen = MutableStateFlow(ShopScreen.STORES)
     val currentScreen: StateFlow<ShopScreen> = _currentScreen.asStateFlow()
 
+    // Wishlist persistence
+    private val _wishlistProductIds = MutableStateFlow<Set<Long>>(emptySet())
+    val wishlistProductIds: StateFlow<Set<Long>> = _wishlistProductIds.asStateFlow()
+
+    fun toggleWishlist(productId: Long) {
+        val user = _activeUser.value
+        viewModelScope.launch {
+            if (user != null && _isConnectedToBackend.value) {
+                try {
+                    val api = getApiService()
+                    val res = api.toggleWishlist(WishlistToggleRequest(user.email, productId.toInt()))
+                    _wishlistProductIds.value = res.productIds.map { it.toLong() }.toSet()
+                } catch (e: Exception) {
+                    toggleWishlistLocal(productId)
+                }
+            } else {
+                toggleWishlistLocal(productId)
+            }
+        }
+    }
+
+    private fun toggleWishlistLocal(productId: Long) {
+        val current = _wishlistProductIds.value.toMutableSet()
+        if (current.contains(productId)) current.remove(productId)
+        else current.add(productId)
+        _wishlistProductIds.value = current
+    }
+
+    fun fetchWishlist() {
+        val user = _activeUser.value ?: return
+        viewModelScope.launch {
+            if (_isConnectedToBackend.value) {
+                try {
+                    val api = getApiService()
+                    val res = api.getWishlist(user.email)
+                    _wishlistProductIds.value = res.map { it.toLong() }.toSet()
+                } catch (e: Exception) {}
+            }
+        }
+    }
+
     // Active User session data
     private val _activeUser = MutableStateFlow<LoginResponse?>(null)
     val activeUser: StateFlow<LoginResponse?> = _activeUser.asStateFlow()
 
     // Remote integration configurations
-    private val _backendUrl = MutableStateFlow<String>(BuildConfig.SHOP_BACKEND_URL.ifEmpty { "http://10.0.2.2:3000" })
+    private val _backendUrl = MutableStateFlow<String>("https://my-store-98y6.onrender.com")
     val backendUrl: StateFlow<String> = _backendUrl.asStateFlow()
 
     private val _isConnectedToBackend = MutableStateFlow(false)
@@ -79,6 +121,11 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
     private val _productForEdit = MutableStateFlow<ProductEntity?>(null)
     val productForEdit: StateFlow<ProductEntity?> = _productForEdit.asStateFlow()
 
+    private val _selectedBrand = MutableStateFlow("All")
+    val selectedBrand: StateFlow<String> = _selectedBrand.asStateFlow()
+
+    fun setSelectedBrand(brand: String) { _selectedBrand.value = brand }
+
     private val _stockFilterActive = MutableStateFlow(false)
     val stockFilterActive: StateFlow<Boolean> = _stockFilterActive.asStateFlow()
 
@@ -96,10 +143,17 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
     // Observe DB products
     val allProducts: StateFlow<List<ProductEntity>> = combine(
         repository.allProducts,
+        _searchQuery,
+        _selectedCategory,
+        _selectedBrand,
         _stockFilterActive
-    ) { products, filterActive ->
-        if (filterActive) products.filter { it.stockQuantity <= 5 }
-        else products
+    ) { products, query, category, brand, filterActive ->
+        products.filter { product ->
+            (query.isEmpty() || product.name.contains(query, ignoreCase = true)) &&
+            (category == "All" || product.category == category) &&
+            (brand == "All" || product.brand == brand) &&
+            (!filterActive || product.stockQuantity <= 5)
+        }
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -153,7 +207,7 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
     fun askAiAssistant(userInput: String) {
         _showAIDialog.value = true
         val systemPrompt = """
-            You are a helpful and energetic shopping assistant for TEMU Shop. 
+            You are a helpful and energetic shopping assistant for MarketEdge Pro. 
             User's name: ${activeUser.value?.name ?: "Guest"}.
             Current Products in DB: ${allProducts.value.joinToString { it.name }}
             Categories: ${appConfig.value?.storeCategories ?: "General"}
@@ -380,8 +434,8 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
         viewModelScope.launch {
             val list = currentCart.map { it.product to it.quantity }
             val basePrice = cartTotalPrice.value
-            val isCouponValid = couponCode.uppercase().trim() == "TEMUFLASHSALE40" || couponCode.uppercase().trim() == "WELCOME50"
-            val couponDiscount = if (couponCode.uppercase().trim() == "TEMUFLASHSALE40") 40 else if (couponCode.uppercase().trim() == "WELCOME50") 20 else 0
+            val isCouponValid = couponCode.uppercase().trim() == BrandConfig.COUPON_FLASHSALE || couponCode.uppercase().trim() == BrandConfig.COUPON_WELCOME
+            val couponDiscount = if (couponCode.uppercase().trim() == BrandConfig.COUPON_FLASHSALE) 40 else if (couponCode.uppercase().trim() == BrandConfig.COUPON_WELCOME) 50 else 0
             val loyaltyDiscount = loyaltyDiscountPercent.value
             val totalDiscountPercent = (couponDiscount + loyaltyDiscount).coerceAtMost(100)
             val finalPrice = basePrice * (1.0 - (totalDiscountPercent / 100.0))
@@ -623,7 +677,7 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                 val stored = repository.getUserProfile(emailStr).first()
                 if (stored != null) {
                     if (stored.passwordHash == passwordStr) {
-                        val response = LoginResponse(stored.email, stored.name, if (stored.email.endsWith("admin@temu.com") || stored.email.contains("admin")) "admin" else "user", "LOCAL_MOCK_USER")
+                        val response = LoginResponse(stored.email, stored.name, if (stored.email.endsWith("admin@marketedge.pro") || stored.email.contains("admin")) "admin" else "user", "LOCAL_MOCK_USER")
                         _activeUser.value = response
                         _checkoutSuccess.emit("Welcome, ${stored.name}! (Offline)")
                         _currentScreen.value = ShopScreen.STORES
@@ -634,14 +688,14 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                     }
                 } else {
                     // Predefined offline accounts fallback
-                    if (emailStr.lowercase() == "admin@temu.com" && passwordStr == "admin123") {
-                        val response = LoginResponse("admin@temu.com", "Temu Administrator", "admin", "LOCAL_MOCK_ADMIN")
+                    if (emailStr.lowercase() == "admin@marketedge.pro" && passwordStr == "admin123") {
+                        val response = LoginResponse("admin@marketedge.pro", "MarketEdge Administrator", "admin", "LOCAL_MOCK_ADMIN")
                         _activeUser.value = response
                         _checkoutSuccess.emit("Logged in as Local Admin (Offline Mode)")
                         _currentScreen.value = ShopScreen.STORES
                         onResult(true)
-                    } else if (emailStr.lowercase() == "user@temu.com" && passwordStr == "user123") {
-                        val response = LoginResponse("user@temu.com", "Jack Buyer", "user", "LOCAL_MOCK_USER")
+                    } else if (emailStr.lowercase() == "user@marketedge.pro" && passwordStr == "user123") {
+                        val response = LoginResponse("user@marketedge.pro", "Enterprise Buyer", "user", "LOCAL_MOCK_USER")
                         _activeUser.value = response
                         _checkoutSuccess.emit("Logged in as Local User (Offline Mode)")
                         _currentScreen.value = ShopScreen.STORES
@@ -709,19 +763,19 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
 
     // Dynamic reactive branding properties mapped from the repository App Config Flow
     val currentBrandName: StateFlow<String> = appConfig.map { config ->
-        val name = config?.customBrandName ?: "Temu"
-        if (name.isBlank()) "Temu" else name
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "Temu")
+        val name = config?.customBrandName ?: "MarketEdge Pro"
+        if (name.isBlank()) "MarketEdge Pro" else name
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "MarketEdge Pro")
 
     val currentBrandColorHex: StateFlow<String> = appConfig.map { config ->
-        val hex = config?.customBrandColorHex ?: "#FFFF5000"
-        if (hex.isBlank()) "#FFFF5000" else hex
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "#FFFF5000")
+        val hex = config?.customBrandColorHex ?: "#FF1A73E8"
+        if (hex.isBlank()) "#FF1A73E8" else hex
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "#FF1A73E8")
 
     val currentLauncherName: StateFlow<String> = appConfig.map { config ->
-        val title = config?.customLauncherName ?: "Temu Shop"
-        if (title.isBlank()) "Temu Shop" else title
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "Temu Shop")
+        val title = config?.customLauncherName ?: "MarketEdge Pro"
+        if (title.isBlank()) "MarketEdge Pro" else title
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "MarketEdge Pro")
 
     fun requestRegisterOtp(
         emailStr: String,
@@ -763,6 +817,18 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
             } catch (e: Exception) {
                 // Offline fallback simulator code
                 onResult(true, "Offline Simulator: Verification code 123456 sent to email (Offline Mode).")
+            }
+        }
+    }
+
+    fun resendRegisterOtp(emailStr: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val api = getApiService()
+                val response = api.resendOtp(ResendOtpRequest(emailStr))
+                onResult(response.success, response.message)
+            } catch (e: Exception) {
+                onResult(false, "Resend failed: ${e.message}")
             }
         }
     }
@@ -931,9 +997,9 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                 flashSalesDiscount = flashSalesDiscount,
                 carouselEditableContent = carouselEditableContent,
                 algorithmicPromotionEnabled = algoEnabled,
-                customBrandName = current?.customBrandName ?: "Temu",
-                customBrandColorHex = current?.customBrandColorHex ?: "#FFFF5000",
-                customLauncherName = current?.customLauncherName ?: "Temu Shop",
+                customBrandName = current?.customBrandName ?: "MarketEdge Pro",
+                customBrandColorHex = current?.customBrandColorHex ?: "#FF1A73E8",
+                customLauncherName = current?.customLauncherName ?: "MarketEdge Pro",
                 referralBonusAmount = current?.referralBonusAmount ?: 20,
                 storeCategories = storeCategories
             )
