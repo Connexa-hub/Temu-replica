@@ -709,7 +709,7 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
         }
     }
 
-    fun registerRemote(emailStr: String, passwordStr: String, nameStr: String, roleStr: String, adminToken: String? = null) {
+    fun registerRemote(emailStr: String, passwordStr: String, nameStr: String, roleStr: String, adminToken: String? = null, country: String = "USA", shippingAddress: String = "") {
         viewModelScope.launch {
             if (emailStr.isEmpty() || passwordStr.isEmpty() || nameStr.isEmpty()) {
                 _errorMessage.emit("All registration fields are required.")
@@ -730,7 +730,9 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                         phoneNumber = "",
                         passwordHash = passwordStr,
                         walletBalance = 120.00,
-                        couponCount = 3
+                        couponCount = 3,
+                        country = country,
+                        shippingAddress = shippingAddress
                     )
                 )
 
@@ -749,7 +751,9 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                             phoneNumber = "",
                             passwordHash = passwordStr,
                             walletBalance = 120.00, // Welcome Gift!
-                            couponCount = 3
+                            couponCount = 3,
+                            country = country,
+                            shippingAddress = shippingAddress
                         )
                     )
                     val response = LoginResponse(emailStr, nameStr, roleStr, "LOCAL_MOCK_TOKEN")
@@ -758,6 +762,17 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                     _currentScreen.value = ShopScreen.STORES
                 }
             }
+        }
+    }
+
+
+    fun getCardBrand(cardNumber: String): String {
+        val sanitized = cardNumber.replace(" ", "").replace("-", "")
+        return when {
+            sanitized.startsWith("4") -> "Visa"
+            sanitized.startsWith("5") -> "Mastercard"
+            sanitized.startsWith("3") -> "American Express"
+            else -> "Unknown"
         }
     }
 
@@ -984,7 +999,10 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
         flashSalesDiscount: Int,
         carouselEditableContent: String,
         algoEnabled: Boolean,
-        storeCategories: String
+        storeCategories: String,
+        brandName: String,
+        brandColorHex: String,
+        launcherName: String
     ) {
         viewModelScope.launch {
             val current = appConfig.value
@@ -997,9 +1015,9 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                 flashSalesDiscount = flashSalesDiscount,
                 carouselEditableContent = carouselEditableContent,
                 algorithmicPromotionEnabled = algoEnabled,
-                customBrandName = current?.customBrandName ?: "MarketEdge Pro",
-                customBrandColorHex = current?.customBrandColorHex ?: "#FF1A73E8",
-                customLauncherName = current?.customLauncherName ?: "MarketEdge Pro",
+                customBrandName = brandName,
+                customBrandColorHex = brandColorHex,
+                customLauncherName = launcherName,
                 referralBonusAmount = current?.referralBonusAmount ?: 20,
                 storeCategories = storeCategories
             )

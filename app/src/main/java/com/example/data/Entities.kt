@@ -97,7 +97,9 @@ data class UserProfileEntity(
     val referralBonusEarned: Double = 0.0,
     val purchaseCount: Int = 0,
     val totalSpent: Double = 0.0,
-    val suspicious: Boolean = false
+    val suspicious: Boolean = false,
+    val country: String = "USA",
+    val shippingAddress: String = ""
 )
 
 

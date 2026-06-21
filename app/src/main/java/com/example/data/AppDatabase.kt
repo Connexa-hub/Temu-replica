@@ -16,7 +16,7 @@ import androidx.room.RoomDatabase
         AppConfigEntity::class,
         UserProfileEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

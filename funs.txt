@@ -1,0 +1,28 @@
+73:fun ShopAppShell(viewModel: ShopViewModel) {
+92:            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+227:fun BottomNavigationBar(
+363:fun InlineAdBanner(category: String) {
+439:fun StorefrontScreen(viewModel: ShopViewModel) {
+893:fun PromotionalHeroBanner(countdownTime: String, context: Context, appConfig: AppConfigEntity?) {
+961:fun BannerContent(
+1020:fun ProductGridCard(
+1222:fun CartScreen(viewModel: ShopViewModel) {
+1559:fun CartItemRow(
+1707:fun OrdersScreen(viewModel: ShopViewModel) {
+1982:fun OrderRowCard(
+2139:fun TrackingCheckpoint(time: String, status: String, isDone: Boolean) {
+2174:fun ProductDetailsDialog(
+2580:fun CreateEditProductDialog(
+2726:fun TopAppBarHeader(title: String) {
+2744:fun AlertBanner(title: String, desc: String, icon: ImageVector, color: Color) {
+2766:fun getProductCategoryIcon(cat: String): ImageVector {
+2777:fun getProductCategoryColor(cat: String): Color {
+2788:fun getStoreBannerResourceId(context: Context): Int {
+2803:fun parseHexColor(hexStr: String): Color {
+2811:fun getProductImageResourceId(context: Context, imageUrl: String): Int {
+2821:fun AuthSettingsScreen(viewModel: ShopViewModel) {
+3958:fun ChatSupportScreen(viewModel: ShopViewModel) {
+4128:fun AdminDashboardScreen(viewModel: ShopViewModel) {
+4558:fun AdminProductDialog(product: ProductEntity, viewModel: ShopViewModel, onDismiss: () -> Unit) {
+4676:fun AIAssistantDialog(viewModel: ShopViewModel, onDismiss: () -> Unit) {
+4743:fun WishlistScreen(viewModel: ShopViewModel) {

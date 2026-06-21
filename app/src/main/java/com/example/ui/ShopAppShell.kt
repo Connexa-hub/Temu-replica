@@ -678,7 +678,10 @@ fun StorefrontScreen(viewModel: ShopViewModel) {
                                             flashSalesDiscount = disc,
                                             carouselEditableContent = editCarousel,
                                             algoEnabled = editAlgoEnabled,
-                                            storeCategories = editCategoriesStr
+                                            storeCategories = editCategoriesStr,
+                                            brandName = "MarketEdge Pro",
+                                            brandColorHex = "#FF1A73E8",
+                                            launcherName = "MarketEdge Pro"
                                         )
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = TemuOrangePrimary),
@@ -2922,19 +2925,18 @@ fun AuthSettingsScreen(viewModel: ShopViewModel) {
                     
                     Text(
                         headerText,
-                        fontWeight = FontWeight.Black,
-                        fontSize = 20.sp,
+                        style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
                         color = dynamicOnBackgroundText
                     )
                     Text(
                         subheaderText,
-                        fontSize = 11.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         color = dynamicSecondaryText,
                         textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
                     )
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(24.dp))
 
                     when (authState) {
                         "LOGIN" -> {
@@ -4497,6 +4499,32 @@ fun AdminDashboardScreen(viewModel: ShopViewModel) {
                 var promoText by remember(appConfig) { mutableStateOf(appConfig?.promoText ?: "") }
                 var adText by remember(appConfig) { mutableStateOf(appConfig?.adText ?: "") }
                 var sliderImages by remember(appConfig) { mutableStateOf(appConfig?.sliderImages ?: "") }
+                
+                var brandName by remember(appConfig) { mutableStateOf(appConfig?.customBrandName ?: "MarketEdge Pro") }
+                var brandColorHex by remember(appConfig) { mutableStateOf(appConfig?.customBrandColorHex ?: "#FF1A73E8") }
+                var launcherName by remember(appConfig) { mutableStateOf(appConfig?.customLauncherName ?: "MarketEdge Pro") }
+
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Storefront & Branding Configuration", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    OutlinedTextField(value = promoText, onValueChange = { promoText = it }, label = { Text("Promo Text") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = adText, onValueChange = { adText = it }, label = { Text("Ad Text") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = brandName, onValueChange = { brandName = it }, label = { Text("App Name") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = brandColorHex, onValueChange = { brandColorHex = it }, label = { Text("Brand Color Hex") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = launcherName, onValueChange = { launcherName = it }, label = { Text("Launcher Name") }, modifier = Modifier.fillMaxWidth())
+                    Button(
+                        modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                        onClick = {
+                            viewModel.updateAppConfig(
+                                sliderImages, promoText, adText, appConfig?.flashSalesDiscount ?: 50,
+                                appConfig?.carouselEditableContent ?: "", true,
+                                appConfig?.storeCategories ?: "",                
+                                brandName, brandColorHex, launcherName
+                            )
+                        }
+                    ) {
+                        Text("Save Branding & Config")
+                    }
+                }
 
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
@@ -4507,7 +4535,7 @@ fun AdminDashboardScreen(viewModel: ShopViewModel) {
                         Button(
                             onClick = { 
                                 appConfig?.let {
-                                    viewModel.updateAppConfig(sliderImages, promoText, adText, it.flashSalesDiscount, it.carouselEditableContent, it.algorithmicPromotionEnabled, it.storeCategories)
+                                    viewModel.updateAppConfig(sliderImages, promoText, adText, it.flashSalesDiscount, it.carouselEditableContent, it.algorithmicPromotionEnabled, it.storeCategories, brandName, brandColorHex, launcherName)
                                 }
                             },
                             modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
